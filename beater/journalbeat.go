@@ -254,49 +254,6 @@ func (jb *Journalbeat) logProcessor() {
 	}
 }
 
-func (jb *Journalbeat) flushStaleLogMessages() {
-	for logType, logBuffer := range jb.journalTypeOutstandingLogBuffer {
-		if time.Now().Sub(logBuffer.time).Seconds() >= 30 {
-			//this message has been sitting in our buffer for more than 30 seconds time to flush it.
-			jb.client.PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
-			delete(jb.journalTypeOutstandingLogBuffer, logType)
-			jb.cursorChan <- logBuffer.logEvent["cursor"].(string)
-		}
-	}
-}
-
-func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
-	//check if it starts with space or tab
-	newLogMessage := event["message"].(string)
-	logType := event["logBufferingType"].(string)
-	arrChars := []byte(newLogMessage)
-	if arrChars[0] == ' ' || arrChars[0] == '\t' {
-		//this is a continuation of previous line
-		if oldLog, found := jb.journalTypeOutstandingLogBuffer[logType]; found {
-			jb.journalTypeOutstandingLogBuffer[logType].logEvent["message"] =
-				oldLog.logEvent["message"].(string) + "\n" + newLogMessage
-		} else {
-			jb.journalTypeOutstandingLogBuffer[logType] = &LogBuffer{
-				time:     time.Now(),
-				logType:  event["logBufferingType"].(string),
-				logEvent: event,
-			}
-		}
-		jb.journalTypeOutstandingLogBuffer[logType].time = time.Now()
-	} else {
-		oldLogBuffer, found := jb.journalTypeOutstandingLogBuffer[logType]
-		jb.journalTypeOutstandingLogBuffer[logType] = &LogBuffer{
-			time:     time.Now(),
-			logType:  event["logBufferingType"].(string),
-			logEvent: event,
-		}
-		if found {
-			//flush the older logs to async.
-			jb.client.PublishEvent(oldLogBuffer.logEvent, publisher.Guaranteed)
-		}
-	}
-}
-
 // Run is the main event loop: read from journald and pass it to Publish
 func (jb *Journalbeat) Run(b *beat.Beat) error {
 	logp.Info("Journalbeat is running!")
