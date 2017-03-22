@@ -52,26 +52,6 @@ const (
 	channelSize int = 1000
 )
 
-type LogBuffer struct {
-	time     time.Time
-	logEvent common.MapStr
-	logType  string
-}
-
-//These are the fields for the container logs.
-const containerTagField string = "CONTAINER_TAG"
-const containerIdField string = "CONTAINER_ID"
-const containerTimestampField string = "_SOURCE_REALTIME_TIMESTAMP"
-
-//These are the fields for the host process logs.
-const tagField string = "SYSLOG_IDENTIFIER"
-const processField string = "_PID"
-const timestampField string = "@timestamp"
-
-//Common fields for both container and host process logs.
-const hostNameField string = "_HOST_NAME"
-const messageField string = "MESSAGE"
-
 // Journalbeat is the main Journalbeat struct
 type Journalbeat struct {
 	done   chan struct{}
@@ -183,7 +163,7 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 		done:                            make(chan struct{}),
 		config:                          config,
 		cursorChan:                      make(chan string),
-		incomingLogMessages:             make(chan common.MapStr, channelSize),
+		incomingLogMessages:             make(chan common.MapStr, 1000),
 		journalTypeOutstandingLogBuffer: make(map[string]*LogBuffer),
 	}
 
