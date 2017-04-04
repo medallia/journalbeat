@@ -45,7 +45,7 @@ func MapStrFromJournalEntry(ev *sdjournal.JournalEntry, cleanKeys bool, convertT
 	}
 
 	// range over the JournalEntry Fields and convert to the common.MapStr
-	for k := range whitelistedFields {
+	for _, k := range whitelistedFields {
 		nk := makeNewKey(k, cleanKeys)
 		if v, ok := ev.Fields[k]; ok {
 			nv := makeNewValue(v, convertToNumbers)
