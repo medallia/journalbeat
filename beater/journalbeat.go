@@ -17,6 +17,7 @@ package beater
 import (
 	"fmt"
 	"io/ioutil"
+	"regexp"
 	"time"
 
 	"github.com/coreos/go-systemd/sdjournal"
@@ -29,13 +30,13 @@ import (
 )
 
 type LogBuffer struct {
-	time     int64
-	logEvent *common.MapStr
+	time     time.Time
+	logEvent common.MapStr
 	logType  string
 }
 
-//These are the fields for the container logs.
 const (
+	//These are the fields for the container logs.
 	containerTagField       string = "CONTAINER_TAG"
 	containerIdField        string = "CONTAINER_ID"
 	containerTimestampField string = "_SOURCE_REALTIME_TIMESTAMP"
@@ -51,6 +52,10 @@ const (
 
 	channelSize int = 1000
 )
+
+//intentional decision to move everyone to this format.
+var validRegexMultilineContinuation =
+	regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} (?P<LogLine>.*)`)
 
 // Journalbeat is the main Journalbeat struct
 type Journalbeat struct {
@@ -163,7 +168,7 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 		done:                            make(chan struct{}),
 		config:                          config,
 		cursorChan:                      make(chan string),
-		incomingLogMessages:             make(chan common.MapStr, 1000),
+		incomingLogMessages:             make(chan common.MapStr, channelSize),
 		journalTypeOutstandingLogBuffer: make(map[string]*LogBuffer),
 	}
 
@@ -177,37 +182,40 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 
 func (jb *Journalbeat) flushStaleLogMessages() {
 	for logType, logBuffer := range jb.journalTypeOutstandingLogBuffer {
-		if time.Now().Sub(logBuffer.time).Seconds() >= 30 {
+		if time.Now().Sub(logBuffer.time).Seconds() >= jb.config.FlushLogInterval.Seconds() {
 			//this message has been sitting in our buffer for more than 30 seconds time to flush it.
 			jb.client.PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
 			delete(jb.journalTypeOutstandingLogBuffer, logType)
-			jb.cursorChan <- logBuffer.logEvent["cursor"]
+			jb.cursorChan <- logBuffer.logEvent["cursor"].(string)
 		}
 	}
 }
 
-func (jb *Journalbeat) flushOrBufferLogs(event *common.MapStr) {
+func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 	//check if it starts with space or tab
-	newLogMessage := event["message"]
-	logType := event["logBufferingType"]
-	arrChars := []byte(newLogMessage)
-	if arrChars[0] == ' ' || arrChars[0] == '\t' {
+	newLogMessage := event["message"].(string)
+	logType := event["logBufferingType"].(string)
+	//intentional decision to move everyone to this format.
+	submatches := validRegexMultilineContinuation.FindStringSubmatch(newLogMessage)
+	if len(submatches) == 2 {
+		newLogMessage = submatches[1]
 		//this is a continuation of previous line
-		if _, found := jb.journalTypeOutstandingLogBuffer[logType]; found {
-			jb.journalTypeOutstandingLogBuffer[logType].logEvent["message"] += newLogMessage
+		if oldLog, found := jb.journalTypeOutstandingLogBuffer[logType]; found {
+			jb.journalTypeOutstandingLogBuffer[logType].logEvent["message"] =
+				oldLog.logEvent["message"].(string) + "\n" + newLogMessage
 		} else {
-			jb.journalTypeOutstandingLogBuffer[logType] = LogBuffer{
+			jb.journalTypeOutstandingLogBuffer[logType] = &LogBuffer{
 				time:     time.Now(),
-				logType:  event["logBufferingType"],
+				logType:  event["logBufferingType"].(string),
 				logEvent: event,
 			}
 		}
 		jb.journalTypeOutstandingLogBuffer[logType].time = time.Now()
 	} else {
 		oldLogBuffer, found := jb.journalTypeOutstandingLogBuffer[logType]
-		jb.journalTypeOutstandingLogBuffer[logType] = LogBuffer{
+		jb.journalTypeOutstandingLogBuffer[logType] = &LogBuffer{
 			time:     time.Now(),
-			logType:  event["logBufferingType"],
+			logType:  event["logBufferingType"].(string),
 			logEvent: event,
 		}
 		if found {
@@ -256,7 +264,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 	for rawEvent := range journal.Follow(jb.journal, jb.done) {
 		event := common.MapStr{}
 		if _, ok := rawEvent.Fields[containerIdField]; ok {
-			selectedFields := append(commonFields, []string{containerTimestampField, containerTagField, containerIdField})
+			selectedFields := append(commonFields, []string{containerTimestampField, containerTagField, containerIdField}...)
 			event = MapStrFromJournalEntry(
 				rawEvent,
 				jb.config.CleanFieldNames,
@@ -267,7 +275,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 			event["@timestamp"] = rawEvent.Fields[containerTimestampField]
 			event["logBufferingType"] = rawEvent.Fields[containerIdField]
 		} else {
-			selectedFields := append(commonFields, []string{tagField, processField, timestampField})
+			selectedFields := append(commonFields, []string{tagField, processField, timestampField}...)
 			event = MapStrFromJournalEntry(
 				rawEvent,
 				jb.config.CleanFieldNames,
