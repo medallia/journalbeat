@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/coreos/go-systemd/sdjournal"
@@ -25,8 +26,8 @@ import (
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/publisher"
-	"github.com/medallia/journalbeat/config"
-	"github.com/medallia/journalbeat/journal"
+	"github.com/mheese/journalbeat/config"
+	"github.com/mheese/journalbeat/journal"
 )
 
 type LogBuffer struct {
@@ -37,25 +38,25 @@ type LogBuffer struct {
 
 const (
 	//These are the fields for the container logs.
-	containerTagField       string = "CONTAINER_TAG"
-	containerIdField        string = "CONTAINER_ID"
-	containerTimestampField string = "_SOURCE_REALTIME_TIMESTAMP"
+	containerTagField string = "CONTAINER_TAG"
+	containerIdField  string = "CONTAINER_ID"
 
 	//These are the fields for the host process logs.
-	tagField       string = "SYSLOG_IDENTIFIER"
-	processField   string = "_PID"
-	timestampField string = "@timestamp"
+	tagField     string = "SYSLOG_IDENTIFIER"
+	processField string = "_PID"
 
 	//Common fields for both container and host process logs.
-	hostNameField string = "_HOST_NAME"
-	messageField  string = "MESSAGE"
+	hostNameField  string = "_HOST_NAME"
+	messageField   string = "MESSAGE"
+	timestampField string = "_SOURCE_REALTIME_TIMESTAMP"
 
-	channelSize int = 1000
+	channelSize   int   = 1000
+	microseconds  int64 = 1000000
+	microsToNanos int64 = 1000
 )
 
 //intentional decision to move everyone to this format.
-var validRegexMultilineContinuation =
-	regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} (?P<LogLine>.*)`)
+var validRegexMultilineContinuation = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} (?P<LogLine>.*)`)
 
 // Journalbeat is the main Journalbeat struct
 type Journalbeat struct {
@@ -264,7 +265,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 	for rawEvent := range journal.Follow(jb.journal, jb.done) {
 		event := common.MapStr{}
 		if _, ok := rawEvent.Fields[containerIdField]; ok {
-			selectedFields := append(commonFields, []string{containerTimestampField, containerTagField, containerIdField}...)
+			selectedFields := append(commonFields, []string{containerTagField, containerIdField}...)
 			event = MapStrFromJournalEntry(
 				rawEvent,
 				jb.config.CleanFieldNames,
@@ -272,10 +273,9 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 				jb.config.MoveMetadataLocation,
 				selectedFields)
 			event["type"] = "container"
-			event["@timestamp"] = rawEvent.Fields[containerTimestampField]
 			event["logBufferingType"] = rawEvent.Fields[containerIdField]
 		} else {
-			selectedFields := append(commonFields, []string{tagField, processField, timestampField}...)
+			selectedFields := append(commonFields, []string{tagField, processField}...)
 			event = MapStrFromJournalEntry(
 				rawEvent,
 				jb.config.CleanFieldNames,
@@ -288,6 +288,20 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 
 		event["input_type"] = jb.config.DefaultType
 		event["cursor"] = rawEvent.Cursor
+		if tmStr, ok := rawEvent.Fields[timestampField]; ok {
+			tm, err := strconv.ParseInt(tmStr, 10, 64)
+			if err == nil {
+				tmSecs := tm / microseconds
+				tmUSecs := tm % microseconds
+				tm := time.Unix(tmSecs, tmUSecs*microsToNanos)
+				event["@timestamp"] = tm.Format("2006-01-02T15:04:05.760738998Z")
+			}
+		} else {
+			tmSecs := int64(int64(rawEvent.RealtimeTimestamp) / (microseconds))
+			tmUSecs := int64(int64(rawEvent.RealtimeTimestamp) % (microseconds))
+			tm := time.Unix(tmSecs, tmUSecs*microsToNanos)
+			event["@timestamp"] = tm.Format("2006-01-02T15:04:05.760738998Z")
+		}
 
 		jb.incomingLogMessages <- event
 	}
