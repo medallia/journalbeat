@@ -26,8 +26,8 @@ import (
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/publisher"
-	"github.com/mheese/journalbeat/config"
-	"github.com/mheese/journalbeat/journal"
+	"github.com/medallia/journalbeat/config"
+	"github.com/medallia/journalbeat/journal"
 )
 
 type LogBuffer struct {
@@ -243,6 +243,13 @@ func (jb *Journalbeat) logProcessor() {
 	}
 }
 
+func (jb *Journalbeat) convertMicrosecondsEpochToISO8601(microsecondsEpoch int64) string {
+	tmSecs := microsecondsEpoch / microseconds
+	tmUSecs := microsecondsEpoch % microseconds
+	tm := time.Unix(tmSecs, tmUSecs*microsToNanos)
+	return tm.Format("2006-01-02T15:04:05.760738998Z")
+}
+
 // Run is the main event loop: read from journald and pass it to Publish
 func (jb *Journalbeat) Run(b *beat.Beat) error {
 	logp.Info("Journalbeat is running!")
@@ -291,16 +298,10 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 		if tmStr, ok := rawEvent.Fields[timestampField]; ok {
 			tm, err := strconv.ParseInt(tmStr, 10, 64)
 			if err == nil {
-				tmSecs := tm / microseconds
-				tmUSecs := tm % microseconds
-				tm := time.Unix(tmSecs, tmUSecs*microsToNanos)
-				event["@timestamp"] = tm.Format("2006-01-02T15:04:05.760738998Z")
+				event["@timestamp"] = jb.convertMicrosecondsEpochToISO8601(tm)
 			}
 		} else {
-			tmSecs := int64(int64(rawEvent.RealtimeTimestamp) / (microseconds))
-			tmUSecs := int64(int64(rawEvent.RealtimeTimestamp) % (microseconds))
-			tm := time.Unix(tmSecs, tmUSecs*microsToNanos)
-			event["@timestamp"] = tm.Format("2006-01-02T15:04:05.760738998Z")
+			event["@timestamp"] = jb.convertMicrosecondsEpochToISO8601(int64(rawEvent.RealtimeTimestamp))
 		}
 
 		jb.incomingLogMessages <- event
