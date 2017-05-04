@@ -17,9 +17,10 @@ package beater
 import (
 	"fmt"
 	"io/ioutil"
-	"regexp"
+	"os"
 	"strconv"
 	"time"
+	"net"
 
 	"github.com/coreos/go-systemd/sdjournal"
 	"github.com/elastic/beats/libbeat/beat"
@@ -28,10 +29,8 @@ import (
 	"github.com/elastic/beats/libbeat/publisher"
 	"github.com/medallia/journalbeat/config"
 	"github.com/medallia/journalbeat/journal"
-	"github.com/rcrowley/go-metrics"
 	"github.com/wavefronthq/go-metrics-wavefront"
-	"net"
-	"os"
+	"github.com/rcrowley/go-metrics"
 )
 
 type LogBuffer struct {
@@ -41,6 +40,7 @@ type LogBuffer struct {
 }
 
 const (
+	metricPrefix string = "logging.journalbeat"
 	//These are the fields for the container logs.
 	containerTagField string = "CONTAINER_TAG"
 	containerIdField  string = "CONTAINER_ID"
@@ -59,9 +59,6 @@ const (
 	microsToNanos int64 = 1000
 )
 
-//intentional decision to move everyone to this format.
-var validRegexMultilineContinuation = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} (?P<LogLine>.*)`)
-
 // Journalbeat is the main Journalbeat struct
 type Journalbeat struct {
 	done   chan struct{}
@@ -76,7 +73,7 @@ type Journalbeat struct {
 	incomingLogMessages             chan common.MapStr
 
 	logMessagesPublished metrics.Counter
-	logMessageDelay metrics.Gauge
+	logMessageDelay      metrics.Gauge
 }
 
 func (jb *Journalbeat) initJournal() error {
@@ -203,10 +200,8 @@ func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 	//check if it starts with space or tab
 	newLogMessage := event["message"].(string)
 	logType := event["logBufferingType"].(string)
-	//intentional decision to move everyone to this format.
-	submatches := validRegexMultilineContinuation.FindStringSubmatch(newLogMessage)
-	if len(submatches) == 2 {
-		newLogMessage = submatches[1]
+
+	if newLogMessage != "" && (newLogMessage[0] == ' ' || newLogMessage[0] == '\t') {
 		//this is a continuation of previous line
 		if oldLog, found := jb.journalTypeOutstandingLogBuffer[logType]; found {
 			jb.journalTypeOutstandingLogBuffer[logType].logEvent["message"] =
@@ -232,7 +227,7 @@ func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 			//update stats if enabled
 			if jb.config.MetricsEnabled {
 				jb.logMessagesPublished.Inc(1)
-				jb.logMessageDelay.Update(time.Now().Unix() - event["utcTimestamp"].(int64))
+				jb.logMessageDelay.Update(time.Now().Unix() - (event["utcTimestamp"].(int64) / microseconds))
 			}
 		}
 	}
@@ -265,41 +260,45 @@ func (jb *Journalbeat) convertMicrosecondsEpochToISO8601(microsecondsEpoch int64
 // Run is the main event loop: read from journald and pass it to Publish
 func (jb *Journalbeat) Run(b *beat.Beat) error {
 	logp.Info("Journalbeat is running!")
+
 	if jb.config.MetricsEnabled {
-		fmt.Println("Metrics are enabled", jb.config.WavefrontCollector)
+		logp.Info("Metrics are enabled" + jb.config.WavefrontCollector)
 		addr, err := net.ResolveTCPAddr("tcp", jb.config.WavefrontCollector)
 		if jb.config.WavefrontCollector != "" && err == nil {
-			jb.logMessageDelay = metrics.NewGauge()
-			jb.logMessagesPublished = metrics.NewCounter()
+			logp.Info("Metrics enabled")
+			//make sure the configuration is sane.
+			gauge := metrics.NewGauge()
+			jb.logMessageDelay = gauge
+			counter := metrics.NewCounter()
+			jb.logMessagesPublished = counter
 			registry := metrics.DefaultRegistry
-
 			//register the metrics with wavefront
-			registry.Register("logMessageConsumptionDelay", jb.logMessageDelay)
-			registry.Register("logMessagesPublished", jb.logMessagesPublished)
-
-			//add the source machine to the source tags
-			hostname, err := os.Hostname();
-			if err != nil {
-				jb.config.HostTags["host"] = hostname
+			registry.Register("MessageConsumptionDelay", gauge)
+			registry.Register("MessagesPublished", counter)
+			hostname, err := os.Hostname()
+			if err == nil {
+				jb.config.HostTags["source"] = hostname
 			}
-			//validate if we can emit metrics to wavefront by trying once synchronously.
+
+			//validate if we can emit metrics to wavefront.
 			err = wavefront.WavefrontOnce(wavefront.WavefrontConfig{
 				Addr:          addr,
 				Registry:      metrics.DefaultRegistry,
 				FlushInterval: jb.config.MetricsInterval,
 				DurationUnit:  time.Nanosecond,
-				Prefix:        "",
+				Prefix:        metricPrefix,
 				HostTags:      jb.config.HostTags,
 				Percentiles:   []float64{0.5, 0.75, 0.95, 0.99, 0.999},
 			})
+
 			if err != nil {
-				logp.Info("Metrics collection for log processing on this host is disabled")
+				logp.Err("Metrics collection for log processing on this host is disabled")
 			}
 
 			go wavefront.Wavefront(registry, jb.config.MetricsInterval, jb.config.HostTags,
 				"", addr)
 		} else {
-			logp.Info("Cannot parse the IP address of wavefront address" + jb.config.WavefrontCollector)
+			logp.Err("Cannot parse the IP address of wavefront address" + jb.config.WavefrontCollector)
 		}
 	}
 
