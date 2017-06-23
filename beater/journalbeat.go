@@ -53,6 +53,7 @@ const (
 	hostNameField  string = "_HOST_NAME"
 	messageField   string = "MESSAGE"
 	timestampField string = "_SOURCE_REALTIME_TIMESTAMP"
+	priorityField string = "PRIORITY"
 
 	channelSize   int   = 1000
 	microseconds  int64 = 1000000
@@ -254,7 +255,7 @@ func (jb *Journalbeat) convertMicrosecondsEpochToISO8601(microsecondsEpoch int64
 	tmSecs := microsecondsEpoch / microseconds
 	tmUSecs := microsecondsEpoch % microseconds
 	tm := time.Unix(tmSecs, tmUSecs*microsToNanos)
-	return tm.Format("2006-01-02T15:04:05.760738998Z")
+	return tm.Format("2006-01-02T15:04:05.760738998")
 }
 
 // Run is the main event loop: read from journald and pass it to Publish
@@ -316,7 +317,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 
 	jb.client = b.Publisher.Connect()
 
-	commonFields := []string{hostNameField, messageField}
+	commonFields := []string{hostNameField, messageField, priorityField}
 
 	for rawEvent := range journal.Follow(jb.journal, jb.done) {
 		event := common.MapStr{}
