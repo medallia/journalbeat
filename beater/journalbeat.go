@@ -286,7 +286,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 			})
 
 			if err != nil {
-				logp.Err("Metrics collection for log processing on this host is disabled" + err.Error())
+				logp.Err("Metrics collection for log processing on this host is disabled %v", err)
 			}
 
 			go wavefront.Wavefront(registry, jb.config.MetricsInterval, jb.config.HostTags,
