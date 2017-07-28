@@ -251,13 +251,6 @@ func (jb *Journalbeat) logProcessor() {
 	}
 }
 
-func (jb *Journalbeat) convertMicrosecondsEpochToISO8601(microsecondsEpoch int64) string {
-	tmSecs := microsecondsEpoch / microseconds
-	tmUSecs := microsecondsEpoch % microseconds
-	tm := time.Unix(tmSecs, tmUSecs*microsToNanos)
-	return tm.Format("2006-01-02T15:04:05.760738998")
-}
-
 // Run is the main event loop: read from journald and pass it to Publish
 func (jb *Journalbeat) Run(b *beat.Beat) error {
 	logp.Info("Journalbeat is running!")
@@ -293,7 +286,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 			})
 
 			if err != nil {
-				logp.Err("Metrics collection for log processing on this host is disabled")
+				logp.Err("Metrics collection for log processing on this host is disabled %v", err)
 			}
 
 			go wavefront.Wavefront(registry, jb.config.MetricsInterval, jb.config.HostTags,
@@ -348,14 +341,11 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 		if tmStr, ok := rawEvent.Fields[timestampField]; ok {
 			tm, err := strconv.ParseInt(tmStr, 10, 64)
 			if err == nil {
-				event["@timestamp"] = jb.convertMicrosecondsEpochToISO8601(tm)
 				event["utcTimestamp"] = tm
 			} else {
-				event["@timestamp"] = jb.convertMicrosecondsEpochToISO8601(int64(rawEvent.RealtimeTimestamp))
 				event["utcTimestamp"] = int64(rawEvent.RealtimeTimestamp)
 			}
 		} else {
-			event["@timestamp"] = jb.convertMicrosecondsEpochToISO8601(int64(rawEvent.RealtimeTimestamp))
 			event["utcTimestamp"] = int64(rawEvent.RealtimeTimestamp)
 		}
 
