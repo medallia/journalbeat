@@ -429,6 +429,12 @@
 			"revisionTime": "2016-09-27T10:08:44Z"
 		},
 		{
+			"checksumSHA1": "gJ1749/q9jf+sWeMGh9rSi9Cqrs=",
+			"path": "github.com/wavefronthq/go-metrics-wavefront",
+			"revision": "c51dfd29f823a1f4726abcc5d8644f3d6f459217",
+			"revisionTime": "2017-04-21T22:06:18Z"
+		},
+		{
 			"checksumSHA1": "LvdVRE0FqdR68SvVpRkHs1rxhcA=",
 			"path": "golang.org/x/net/proxy",
 			"revision": "45e771701b814666a7eb299e6c7a57d0b1799e91",
@@ -459,5 +465,5 @@
 			"revisionTime": "2016-09-28T15:37:09Z"
 		}
 	],
-	"rootPath": "github.com/mheese/journalbeat"
+	"rootPath": "github.com/medallia/journalbeat"
 }

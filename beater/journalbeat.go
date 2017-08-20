@@ -17,10 +17,10 @@ package beater
 import (
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"strconv"
 	"time"
-	"net"
 
 	"github.com/coreos/go-systemd/sdjournal"
 	"github.com/elastic/beats/libbeat/beat"
@@ -29,8 +29,8 @@ import (
 	"github.com/elastic/beats/libbeat/publisher"
 	"github.com/medallia/journalbeat/config"
 	"github.com/medallia/journalbeat/journal"
-	"github.com/wavefronthq/go-metrics-wavefront"
 	"github.com/rcrowley/go-metrics"
+	"github.com/wavefronthq/go-metrics-wavefront"
 )
 
 type LogBuffer struct {
@@ -53,7 +53,7 @@ const (
 	hostNameField  string = "_HOST_NAME"
 	messageField   string = "MESSAGE"
 	timestampField string = "_SOURCE_REALTIME_TIMESTAMP"
-	priorityField string = "PRIORITY"
+	priorityField  string = "PRIORITY"
 
 	channelSize   int   = 1000
 	microseconds  int64 = 1000000
@@ -256,19 +256,16 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 	logp.Info("Journalbeat is running!")
 
 	if jb.config.MetricsEnabled {
-		logp.Info("Metrics are enabled" + jb.config.WavefrontCollector)
+		logp.Info("Metrics are enabled. Sending to " + jb.config.WavefrontCollector)
 		addr, err := net.ResolveTCPAddr("tcp", jb.config.WavefrontCollector)
 		if jb.config.WavefrontCollector != "" && err == nil {
-			logp.Info("Metrics enabled")
+			logp.Info("Metrics address parsed")
+
 			//make sure the configuration is sane.
-			gauge := metrics.NewGauge()
-			jb.logMessageDelay = gauge
-			counter := metrics.NewCounter()
-			jb.logMessagesPublished = counter
 			registry := metrics.DefaultRegistry
-			//register the metrics with wavefront
-			registry.Register("MessageConsumptionDelay", gauge)
-			registry.Register("MessagesPublished", counter)
+			jb.logMessageDelay = metrics.NewRegisteredGauge("MessageConsumptionDelay", registry)
+			jb.logMessagesPublished = metrics.NewRegisteredCounter("MessagesPublished", registry)
+
 			hostname, err := os.Hostname()
 			if err == nil {
 				jb.config.HostTags["source"] = hostname
@@ -277,7 +274,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 			//validate if we can emit metrics to wavefront.
 			err = wavefront.WavefrontOnce(wavefront.WavefrontConfig{
 				Addr:          addr,
-				Registry:      metrics.DefaultRegistry,
+				Registry:      registry,
 				FlushInterval: jb.config.MetricsInterval,
 				DurationUnit:  time.Nanosecond,
 				Prefix:        metricPrefix,
@@ -292,7 +289,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 			go wavefront.Wavefront(registry, jb.config.MetricsInterval, jb.config.HostTags,
 				"", addr)
 		} else {
-			logp.Err("Cannot parse the IP address of wavefront address" + jb.config.WavefrontCollector)
+			logp.Err("Cannot parse the IP address of wavefront address " + jb.config.WavefrontCollector)
 		}
 	}
 
