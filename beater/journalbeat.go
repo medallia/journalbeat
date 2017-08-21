@@ -271,8 +271,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 				jb.config.HostTags["source"] = hostname
 			}
 
-			//validate if we can emit metrics to wavefront.
-			err = wavefront.WavefrontOnce(wavefront.WavefrontConfig{
+			wfConfig := wavefront.WavefrontConfig{
 				Addr:          addr,
 				Registry:      registry,
 				FlushInterval: jb.config.MetricsInterval,
@@ -280,14 +279,14 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 				Prefix:        metricPrefix,
 				HostTags:      jb.config.HostTags,
 				Percentiles:   []float64{0.5, 0.75, 0.95, 0.99, 0.999},
-			})
-
-			if err != nil {
-				logp.Err("Metrics collection for log processing on this host is disabled %v", err)
 			}
 
-			go wavefront.Wavefront(registry, jb.config.MetricsInterval, jb.config.HostTags,
-				"", addr)
+			// validate if we can emit metrics to wavefront.
+			if err = wavefront.WavefrontOnce(wfConfig); err != nil {
+				logp.Err("Metrics collection for log processing on this host failed at boot time: %v", err)
+			}
+
+			go wavefront.WavefrontWithConfig(wfConfig)
 		} else {
 			logp.Err("Cannot parse the IP address of wavefront address " + jb.config.WavefrontCollector)
 		}
