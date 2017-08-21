@@ -14,7 +14,6 @@
 
 package main
 
-
 import (
 	"log"
 
@@ -23,7 +22,7 @@ import (
 )
 
 func main() {
-	err := beat.Run("journalbeat", "", beater.New)
+	err := beat.Run("journalbeat", "5.0.1", beater.New)
 	if err != nil {
 		log.Fatal(err)
 	}
