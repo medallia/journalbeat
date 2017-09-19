@@ -31,12 +31,24 @@ import (
 	"github.com/medallia/journalbeat/journal"
 	"github.com/rcrowley/go-metrics"
 	"github.com/wavefronthq/go-metrics-wavefront"
+	"github.com/elastic/beats/libbeat/processors"
+	"hash/fnv"
 )
 
 type LogBuffer struct {
 	time     time.Time
 	logEvent common.MapStr
 	logType  string
+}
+
+func hash(s string) int {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return int(h.Sum32())
+}
+
+func getPartition(s string, numPartitions int) int {
+	return hash(s) % numPartitions
 }
 
 const (
@@ -62,9 +74,12 @@ const (
 
 // Journalbeat is the main Journalbeat struct
 type Journalbeat struct {
+	numClients int
 	done   chan struct{}
 	config config.Config
 	client publisher.Client
+	//TODO need to initialize these with different IP addresses.
+	clients [15]publisher.Client
 
 	journal *sdjournal.Journal
 
@@ -190,7 +205,8 @@ func (jb *Journalbeat) flushStaleLogMessages() {
 	for logType, logBuffer := range jb.journalTypeOutstandingLogBuffer {
 		if time.Now().Sub(logBuffer.time).Seconds() >= jb.config.FlushLogInterval.Seconds() {
 			//this message has been sitting in our buffer for more than 30 seconds time to flush it.
-			jb.client.PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
+			partition := getPartition(logBuffer.logEvent["type"].(string), jb.numClients)
+			jb.clients[partition].PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
 			delete(jb.journalTypeOutstandingLogBuffer, logType)
 			jb.cursorChan <- logBuffer.logEvent["cursor"].(string)
 		}
@@ -305,6 +321,65 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 	go jb.logProcessor()
 
 	jb.client = b.Publisher.Connect()
+
+	var err error
+	jb.numClients, err = b.Config.Output["logstash"].CountField("hosts")
+	if err!= nil {
+		logp.Err("Invalid configuration for sending contents to logstash")
+		os.Exit(101)
+	}
+
+	//parse all the different endpoints read-only iteration.
+	endpoints := make([]string, jb.numClients)
+	for i:= 0; i<jb.numClients; i++ {
+		endpoint, err := b.Config.Output["logstash"].String("hosts",i)
+		fmt.Println("Retrieved endpoints is" + endpoint)
+		if err != nil {
+			logp.Err("Invalid configuration failed to lookup endpoint for")
+			os.Exit(102)
+		}
+		endpoints[i]=endpoint
+		fmt.Println("Endpoint is" + endpoints[i])
+	}
+
+	for i:=0; i<jb.numClients; i++ {
+		processors, err := processors.New(b.Config.Processors)
+		if err != nil {
+			return fmt.Errorf("error initializing processors: %v", err)
+		}
+
+		//override the hosts to pick one of the entries from the original hosts configuration.
+		config := common.NewConfig()
+		config.SetString("hosts", 0, endpoints[i])
+		//config.Merge(b.Config.Output["logstash"])
+		b.Config.Output["logstash"].Merge(config)
+
+		//clone the original map
+		originalMap := b.Config.Output
+		newMap := make(map[string]*common.Config)
+		for k,v := range originalMap {
+			newMap[k] = v
+		}
+
+		publisher, err := publisher.New(b.Name, b.Version, newMap, b.Config.Shipper, processors)
+		if err != nil {
+			return fmt.Errorf("error initializing publisher: %v", err)
+		}
+		fmt.Println("Hooray: Entries in configurations")
+		//figure out how many logstash aggregator endpoints there are.
+		endpoint, err := config.String("hosts",0)
+		if err != nil {
+			logp.Err("Invalid configuration failed to lookup endpoint for")
+			os.Exit(102)
+		}
+		fmt.Println("Endpoint:" + endpoint)
+		numHosts,error := config.CountField("hosts")
+		if error != nil {
+			fmt.Println("Number of entries:" + string(numHosts))
+		}
+
+		jb.clients[i] = publisher.Connect()
+	}
 
 	commonFields := []string{hostNameField, messageField, priorityField}
 
