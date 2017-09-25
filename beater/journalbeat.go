@@ -74,10 +74,9 @@ const (
 
 // Journalbeat is the main Journalbeat struct
 type Journalbeat struct {
-	done   chan struct{}
-	config config.Config
-	client publisher.Client
-	//TODO need to initialize these with different IP addresses.
+	done                 chan struct{}
+	config               config.Config
+	client               publisher.Client
 	logstashClients      []publisher.Client
 	numLogstashAvailable int //corresponds to the number of downstream logstash aggregators available at startup.
 
@@ -323,33 +322,14 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 	jb.client = b.Publisher.Connect()
 
 	var err error
-	numLogstashInstances, err := b.Config.Output["logstash"].CountField("hosts")
+	jb.numLogstashAvailable, err = b.Config.Output["logstash"].CountField("hosts")
 	if err != nil {
 		logp.Err("Invalid configuration for sending contents to logstash")
 		os.Exit(101)
 	}
 
-	//parse all the different endpoints read-only iteration.
-	var endpoints []string
-	for i := 0; i < numLogstashInstances; i++ {
+	for i := 0; i < jb.numLogstashAvailable; i++ {
 		endpoint, err := b.Config.Output["logstash"].String("hosts", i)
-		fmt.Println("Retrieved endpoints is" + endpoint)
-		if err != nil {
-			logp.Err("Invalid configuration failed to lookup endpoint for")
-			os.Exit(102)
-		}
-		//check if the logstash endpoint is reachable
-		conn, err := net.Dial("tcp", endpoint)
-		defer conn.Close()
-		if err != nil {
-			logp.Err("Error encountered connecting to logstash endpoint: %s", err)
-		} else {
-			endpoints = append(endpoints, endpoint)
-			logp.Info("Logstash Endpoint available: %s", endpoint)
-		}
-	}
-
-	for i := 0; i < len(endpoints); i++ {
 		processors, err := processors.New(b.Config.Processors)
 		if err != nil {
 			return fmt.Errorf("error initializing processors: %v", err)
@@ -357,8 +337,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 
 		//override the hosts to pick one of the entries from the original hosts configuration.
 		config := common.NewConfig()
-		config.SetString("hosts", 0, endpoints[i])
-		//config.Merge(b.Config.Output["logstash"])
+		config.SetString("hosts", 0, endpoint)
 		b.Config.Output["logstash"].Merge(config)
 
 		//clone the original map
@@ -424,5 +403,8 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 func (jb *Journalbeat) Stop() {
 	logp.Info("Stopping Journalbeat")
 	close(jb.done)
+	for i := 0; i < jb.numLogstashAvailable; i++ {
+		jb.logstashClients[i].Close()
+	}
 	jb.logstashClients[0].Close()
 }
