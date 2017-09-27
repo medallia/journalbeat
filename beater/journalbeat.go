@@ -406,5 +406,4 @@ func (jb *Journalbeat) Stop() {
 	for i := 0; i < jb.numLogstashAvailable; i++ {
 		jb.logstashClients[i].Close()
 	}
-	jb.logstashClients[0].Close()
 }
