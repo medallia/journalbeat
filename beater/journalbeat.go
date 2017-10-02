@@ -26,17 +26,29 @@ import (
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
+	"github.com/elastic/beats/libbeat/processors"
 	"github.com/elastic/beats/libbeat/publisher"
 	"github.com/medallia/journalbeat/config"
 	"github.com/medallia/journalbeat/journal"
 	"github.com/rcrowley/go-metrics"
 	"github.com/wavefronthq/go-metrics-wavefront"
+	"hash/fnv"
 )
 
 type LogBuffer struct {
 	time     time.Time
 	logEvent common.MapStr
 	logType  string
+}
+
+func hash(s string) int {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return int(h.Sum32())
+}
+
+func getPartition(s string, numPartitions int) int {
+	return hash(s) % numPartitions
 }
 
 const (
@@ -62,9 +74,11 @@ const (
 
 // Journalbeat is the main Journalbeat struct
 type Journalbeat struct {
-	done   chan struct{}
-	config config.Config
-	client publisher.Client
+	done                 chan struct{}
+	config               config.Config
+	client               publisher.Client
+	logstashClients      []publisher.Client
+	numLogstashAvailable int //corresponds to the number of downstream logstash aggregators available at startup.
 
 	journal *sdjournal.Journal
 
@@ -190,7 +204,8 @@ func (jb *Journalbeat) flushStaleLogMessages() {
 	for logType, logBuffer := range jb.journalTypeOutstandingLogBuffer {
 		if time.Now().Sub(logBuffer.time).Seconds() >= jb.config.FlushLogInterval.Seconds() {
 			//this message has been sitting in our buffer for more than 30 seconds time to flush it.
-			jb.client.PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
+			partition := getPartition(logBuffer.logEvent["type"].(string), jb.numLogstashAvailable)
+			jb.logstashClients[partition].PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
 			delete(jb.journalTypeOutstandingLogBuffer, logType)
 			jb.cursorChan <- logBuffer.logEvent["cursor"].(string)
 		}
@@ -306,6 +321,40 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 
 	jb.client = b.Publisher.Connect()
 
+	var err error
+	jb.numLogstashAvailable, err = b.Config.Output["logstash"].CountField("hosts")
+	if err != nil {
+		logp.Err("Invalid configuration for sending contents to logstash")
+		os.Exit(101)
+	}
+
+	for i := 0; i < jb.numLogstashAvailable; i++ {
+		endpoint, err := b.Config.Output["logstash"].String("hosts", i)
+		processors, err := processors.New(b.Config.Processors)
+		if err != nil {
+			return fmt.Errorf("error initializing processors: %v", err)
+		}
+
+		//override the hosts to pick one of the entries from the original hosts configuration.
+		config := common.NewConfig()
+		config.SetString("hosts", 0, endpoint)
+		b.Config.Output["logstash"].Merge(config)
+
+		//clone the original map
+		originalMap := b.Config.Output
+		newMap := make(map[string]*common.Config)
+		for k, v := range originalMap {
+			newMap[k] = v
+		}
+
+		publisher, err := publisher.New(b.Name, b.Version, newMap, b.Config.Shipper, processors)
+		if err != nil {
+			return fmt.Errorf("error initializing publisher: %v", err)
+		}
+
+		jb.logstashClients = append(jb.logstashClients, publisher.Connect())
+	}
+
 	commonFields := []string{hostNameField, messageField, priorityField}
 
 	for rawEvent := range journal.Follow(jb.journal, jb.done) {
@@ -354,4 +403,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 func (jb *Journalbeat) Stop() {
 	logp.Info("Stopping Journalbeat")
 	close(jb.done)
+	for i := 0; i < jb.numLogstashAvailable; i++ {
+		jb.logstashClients[i].Close()
+	}
 }
