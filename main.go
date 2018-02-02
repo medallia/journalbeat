@@ -22,7 +22,7 @@ import (
 )
 
 func main() {
-	err := beat.Run("journalbeat", "5.0.1", beater.New)
+	err := beat.Run("journalbeat", "5.0.2", beater.New)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -47,8 +47,20 @@ func hash(s string) int {
 	return int(h.Sum32())
 }
 
-func getPartition(s string, numPartitions int) int {
-	return hash(s) % numPartitions
+func getPartition(lb *LogBuffer, numPartitions int) int {
+	partition := 0
+	if tag, ok := lb.logEvent["container_tag"]; ok {
+		// same container - same instance
+		// Assuming equal config - if container moves, it should still
+		// end up at same logstash instance
+		partition = hash(tag.(string)) % numPartitions
+	} else if buftype, ok := lb.logEvent["logBufferingType"]; ok {
+		// journalbeat does re-assembly based on logBufferingType
+		partition = hash(buftype.(string)) % numPartitions
+	} else if eventtype, ok := lb.logEvent["type"]; ok {
+		partition = hash(eventtype.(string)) % numPartitions
+	}
+	return partition
 }
 
 const (
@@ -204,7 +216,7 @@ func (jb *Journalbeat) flushStaleLogMessages() {
 	for logType, logBuffer := range jb.journalTypeOutstandingLogBuffer {
 		if time.Now().Sub(logBuffer.time).Seconds() >= jb.config.FlushLogInterval.Seconds() {
 			//this message has been sitting in our buffer for more than 30 seconds time to flush it.
-			partition := getPartition(logBuffer.logEvent["type"].(string), jb.numLogstashAvailable)
+			partition := getPartition(logBuffer, jb.numLogstashAvailable)
 			jb.logstashClients[partition].PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
 			delete(jb.journalTypeOutstandingLogBuffer, logType)
 			jb.cursorChan <- logBuffer.logEvent["cursor"].(string)
@@ -239,7 +251,8 @@ func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 		}
 		if found {
 			//flush the older logs to async.
-			jb.client.PublishEvent(oldLogBuffer.logEvent, publisher.Guaranteed)
+			partition := getPartition(oldLogBuffer, jb.numLogstashAvailable)
+			jb.logstashClients[partition].PublishEvent(oldLogBuffer.logEvent, publisher.Guaranteed)
 			//update stats if enabled
 			if jb.config.MetricsEnabled {
 				jb.logMessagesPublished.Inc(1)
@@ -264,6 +277,32 @@ func (jb *Journalbeat) logProcessor() {
 			jb.flushOrBufferLogs(channelEvent)
 		}
 	}
+}
+
+// "circular shift" a config list
+func shiftlist(cfg *common.Config, target *common.Config, key string, shift int) error {
+	count, err := cfg.CountField(key)
+	if err != nil {
+		return err
+	}
+	offset := 0
+	for n := shift; n < count; n++ {
+		item, err := cfg.String(key, n)
+		if err != nil {
+			return err
+		}
+		target.SetString(key, offset, item)
+		offset++
+	}
+	for n := 0; n < shift; n++ {
+		item, err := cfg.String(key, n)
+		if err != nil {
+			return err
+		}
+		target.SetString(key, offset, item)
+		offset++
+	}
+	return nil
 }
 
 // Run is the main event loop: read from journald and pass it to Publish
@@ -329,25 +368,22 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 	}
 
 	for i := 0; i < jb.numLogstashAvailable; i++ {
-		endpoint, err := b.Config.Output["logstash"].String("hosts", i)
 		processors, err := processors.New(b.Config.Processors)
 		if err != nil {
 			return fmt.Errorf("error initializing processors: %v", err)
 		}
 
 		//override the hosts to pick one of the entries from the original hosts configuration.
-		config := common.NewConfig()
-		config.SetString("hosts", 0, endpoint)
-		b.Config.Output["logstash"].Merge(config)
-
-		//clone the original map
-		originalMap := b.Config.Output
-		newMap := make(map[string]*common.Config)
-		for k, v := range originalMap {
-			newMap[k] = v
+		newoutput, err := common.NewConfigFrom(b.Config.Output["logstash"])
+		if err != nil {
+			return fmt.Errorf("Failed to clone output config: %v", err)
+		}
+		err = shiftlist(b.Config.Output["logstash"], newoutput, "hosts", i)
+		if err != nil {
+			return fmt.Errorf("Failed to shift list %v", err)
 		}
 
-		publisher, err := publisher.New(b.Name, b.Version, newMap, b.Config.Shipper, processors)
+		publisher, err := publisher.New(b.Name, b.Version, map[string]*common.Config{"logstash": newoutput}, b.Config.Shipper, processors)
 		if err != nil {
 			return fmt.Errorf("error initializing publisher: %v", err)
 		}
