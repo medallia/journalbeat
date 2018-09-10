@@ -339,6 +339,12 @@
 			"revisionTime": "2016-11-22T22:47:13Z"
 		},
 		{
+			"checksumSHA1": "FMi+w3UIWYNVB7l8SJF8rrHOwM0=",
+			"path": "github.com/f0ster/go-metrics-influxdb",
+			"revision": "4363dad69b44bd4906e4e33b8d1233742782d457",
+			"revisionTime": "2017-05-17T23:30:05Z"
+		},
+		{
 			"checksumSHA1": "2UmMbNHc8FBr98mJFN1k8ISOIHk=",
 			"path": "github.com/garyburd/redigo/internal",
 			"revision": "0708def8b0cf3a05acdf44a7f28b864c2958921d",
