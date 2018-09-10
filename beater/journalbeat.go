@@ -22,17 +22,18 @@ import (
 	"strconv"
 	"time"
 
+	"hash/fnv"
+
 	"github.com/coreos/go-systemd/sdjournal"
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/processors"
 	"github.com/elastic/beats/libbeat/publisher"
-	"github.com/medallia/journalbeat/config"
-	"github.com/medallia/journalbeat/journal"
+	"github.com/mheese/journalbeat/config"
+	"github.com/mheese/journalbeat/journal"
 	"github.com/rcrowley/go-metrics"
 	"github.com/wavefronthq/go-metrics-wavefront"
-	"hash/fnv"
 )
 
 type LogBuffer struct {
