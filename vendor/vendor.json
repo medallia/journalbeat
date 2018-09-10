@@ -363,6 +363,24 @@
 			"revisionTime": "2016-05-29T05:00:41Z"
 		},
 		{
+			"checksumSHA1": "5az0rVSNEkNg2CsLqWgvYE93FPI=",
+			"path": "github.com/influxdata/influxdb/client",
+			"revision": "05acc10f0f99288fea9d06de38b1b1876c1fa14d",
+			"revisionTime": "2018-09-10T15:57:12Z"
+		},
+		{
+			"checksumSHA1": "2bzzo1XBpHYUj7HA99xgGsaJyc8=",
+			"path": "github.com/influxdata/influxdb/models",
+			"revision": "05acc10f0f99288fea9d06de38b1b1876c1fa14d",
+			"revisionTime": "2018-09-10T15:57:12Z"
+		},
+		{
+			"checksumSHA1": "Z0Bb5PWa5WL/j5Dm2KJCLGn1l7U=",
+			"path": "github.com/influxdata/influxdb/pkg/escape",
+			"revision": "05acc10f0f99288fea9d06de38b1b1876c1fa14d",
+			"revisionTime": "2018-09-10T15:57:12Z"
+		},
+		{
 			"checksumSHA1": "l9wW52CYGbmO/NGwYZ/Op2QTmaA=",
 			"path": "github.com/joeshaw/multierror",
 			"revision": "69b34d4ec901851247ae7e77d33909caf9df99ed",
@@ -417,10 +435,10 @@
 			"revisionTime": "2016-10-29T09:36:37Z"
 		},
 		{
-			"checksumSHA1": "KAzbLjI9MzW2tjfcAsK75lVRp6I=",
+			"checksumSHA1": "an5RM8wjgPPloolUUYkvEncbHu4=",
 			"path": "github.com/rcrowley/go-metrics",
-			"revision": "1f30fe9094a513ce4c700b9a54458bbb0c96996c",
-			"revisionTime": "2016-11-28T21:05:44Z"
+			"revision": "e2704e165165ec55d062f5919b4b29494e9fa790",
+			"revisionTime": "2018-05-03T17:46:38Z"
 		},
 		{
 			"checksumSHA1": "q/d9nXRQYKEJ/EWn+5y6jL8rPGs=",

@@ -25,21 +25,25 @@ import (
 
 // Config provides the config settings for the journald reader
 type Config struct {
-	SeekPosition         string        	`config:"seek_position"`
-	ConvertToNumbers     bool          	`config:"convert_to_numbers"`
-	CleanFieldNames      bool          	`config:"clean_field_names"`
-	WriteCursorState     bool          	`config:"write_cursor_state"`
-	CursorStateFile      string        	`config:"cursor_state_file"`
-	CursorFlushPeriod    time.Duration 	`config:"cursor_flush_period"`
-	CursorSeekFallback   string        	`config:"cursor_seek_fallback"`
-	MoveMetadataLocation string        	`config:"move_metadata_to_field"`
-	DefaultType          string        	`config:"default_type"`
-	Units                []string      	`config:"units"`
-	FlushLogInterval     time.Duration 	`config:"flush_log_interval"`
-	MetricsInterval      time.Duration 	`config:"emit_metrics_interval"`
-	MetricsEnabled       bool          	`config:"enable_metrics"`
-	WavefrontCollector   string        	`config:"wavefront_collector"`
-	HostTags             map[string]string  `config:"wavefront_tags"`
+	SeekPosition         string        `config:"seek_position"`
+	ConvertToNumbers     bool          `config:"convert_to_numbers"`
+	CleanFieldNames      bool          `config:"clean_field_names"`
+	WriteCursorState     bool          `config:"write_cursor_state"`
+	CursorStateFile      string        `config:"cursor_state_file"`
+	CursorFlushPeriod    time.Duration `config:"cursor_flush_period"`
+	CursorSeekFallback   string        `config:"cursor_seek_fallback"`
+	MoveMetadataLocation string        `config:"move_metadata_to_field"`
+	DefaultType          string        `config:"default_type"`
+	Units                []string      `config:"units"`
+
+	// Medallia added
+	MetricsEnabled     bool              `config:"enable_metrics"`
+	FlushLogInterval   time.Duration     `config:"flush_log_interval"`
+	MetricsInterval    time.Duration     `config:"emit_metrics_interval"`
+	WavefrontCollector string            `config:"wavefront_collector"`
+	MetricTags         map[string]string `config:"wavefront_tags"`
+	InfluxDBURL        string            `config:"influxdb_url"`
+	InfluxDatabase     string            `config:"influxdb_db"`
 }
 
 // Named constants for the journal cursor placement positions
@@ -74,7 +78,7 @@ var (
 		MetricsInterval:    30 * time.Second,
 		MetricsEnabled:     false,
 		WavefrontCollector: "",
-		HostTags:           map[string]string{},
+		MetricTags:         map[string]string{},
 	}
 )
 

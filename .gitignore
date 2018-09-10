@@ -27,4 +27,3 @@ Temporary Items
 # Build/package files
 bin/
 build/
-Dockerfile
