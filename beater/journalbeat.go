@@ -17,7 +17,6 @@ package beater
 import (
 	"fmt"
 	"io/ioutil"
-	"net"
 	"os"
 	"strconv"
 	"time"
@@ -28,11 +27,9 @@ import (
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/processors"
 	"github.com/elastic/beats/libbeat/publisher"
-	"github.com/f0ster/go-metrics-influxdb"
 	"github.com/mheese/journalbeat/config"
 	"github.com/mheese/journalbeat/journal"
 	"github.com/rcrowley/go-metrics"
-	"github.com/wavefronthq/go-metrics-wavefront"
 )
 
 // Journalbeat is the main Journalbeat struct
@@ -148,9 +145,10 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 	}
 
 	jb := &Journalbeat{
-		done:                            make(chan struct{}),
-		config:                          config,
-		cursorChan:                      make(chan string),
+		done:       make(chan struct{}),
+		config:     config,
+		cursorChan: make(chan string),
+
 		incomingLogMessages:             make(chan common.MapStr, channelSize),
 		journalTypeOutstandingLogBuffer: make(map[string]*LogBuffer),
 	}
@@ -166,58 +164,6 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 // Run is the main event loop: read from journald and pass it to Publish
 func (jb *Journalbeat) Run(b *beat.Beat) error {
 	logp.Info("Journalbeat is running!")
-
-	if jb.config.MetricsEnabled {
-		if jb.config.WavefrontCollector != "" {
-			logp.Info("Wavefront metrics are enabled. Sending to " + jb.config.WavefrontCollector)
-			addr, err := net.ResolveTCPAddr("tcp", jb.config.WavefrontCollector)
-			if jb.config.WavefrontCollector != "" && err == nil {
-				logp.Info("Metrics address parsed")
-
-				// make sure the configuration is sane.
-				registry := metrics.DefaultRegistry
-				jb.logMessageDelay = metrics.NewRegisteredGauge("MessageConsumptionDelay", registry)
-				jb.logMessagesPublished = metrics.NewRegisteredCounter("MessagesPublished", registry)
-
-				hostname, err := os.Hostname()
-				if err == nil {
-					jb.config.MetricTags["source"] = hostname
-				}
-
-				wfConfig := wavefront.WavefrontConfig{
-					Addr:          addr,
-					Registry:      registry,
-					FlushInterval: jb.config.MetricsInterval,
-					DurationUnit:  time.Nanosecond,
-					Prefix:        metricPrefix,
-					HostTags:      jb.config.MetricTags,
-					Percentiles:   []float64{0.5, 0.75, 0.95, 0.99, 0.999},
-				}
-
-				// validate if we can emit metrics to wavefront.
-				if err = wavefront.WavefrontOnce(wfConfig); err != nil {
-					logp.Err("Metrics collection for log processing on this host failed at boot time: %v", err)
-				}
-
-				go wavefront.WavefrontWithConfig(wfConfig)
-			} else {
-				logp.Err("Cannot parse the IP address of wavefront address " + jb.config.WavefrontCollector)
-			}
-		}
-
-		if jb.config.InfluxDBURL != "" {
-			logp.Info("InfluxDB metrics are enabled. Sending to " + jb.config.InfluxDBURL)
-			go influxdb.InfluxDB(
-				metrics.DefaultRegistry,   // metrics registry
-				jb.config.MetricsInterval, // interval
-				jb.config.InfluxDBURL,     // the InfluxDB url
-				jb.config.InfluxDatabase,  // your InfluxDB database
-				"",              // your InfluxDB user
-				"",              // your InfluxDB password
-			)
-		}
-	}
-
 	defer func() {
 		close(jb.cursorChan)
 		jb.client.Close()
@@ -228,6 +174,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 		go jb.writeCursorLoop()
 	}
 
+	jb.startMetricsReporters()
 	go jb.logProcessor()
 
 	jb.client = b.Publisher.Connect()
