@@ -75,7 +75,7 @@ var (
 		CursorSeekFallback: SeekPositionTail,
 		DefaultType:        "journal",
 		FlushLogInterval:   30 * time.Second,
-		MetricsInterval:    30 * time.Second,
+		MetricsInterval:    10 * time.Second,
 		MetricsEnabled:     false,
 		WavefrontCollector: "",
 		MetricTags:         map[string]string{},
