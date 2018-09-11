@@ -84,6 +84,12 @@ var (
 
 // Validate turns Config into implementation of Validator and will be executed when Unpack is called
 func (config *Config) Validate() error {
+	if config.MetricsEnabled {
+		if config.WavefrontCollector == "" && config.InfluxDBURL == "" {
+			return fmt.Errorf("Metrics enabled but both wavefront collector and influx url are empty")
+		}
+	}
+
 	// validate MoveMetadataLocation against the regexp. We don't want extra dots to appear
 	validID := regexp.MustCompile(`\.{2,}|\.$`)
 	if config.MoveMetadataLocation != "" && validID.MatchString(config.MoveMetadataLocation) {
