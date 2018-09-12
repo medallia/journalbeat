@@ -22,18 +22,18 @@ const (
 	metricPrefix string = "logging.journalbeat."
 
 	// These are the fields for the container logs.
-	containerTagField string = "CONTAINER_TAG"
-	containerIdField  string = "CONTAINER_ID"
+	containerTagField string = "container_tag"
+	containerIdField  string = "container_id"
 
 	// These are the fields for the host native process logs.
-	tagField     string = "SYSLOG_IDENTIFIER"
-	processField string = "_PID"
+	tagField     string = "syslog_identifier"
+	processField string = "pid"
 
 	// Common fields for both container and host process logs.
-	hostNameField  string = "_HOST_NAME"
-	messageField   string = "MESSAGE"
-	timestampField string = "_SOURCE_REALTIME_TIMESTAMP"
-	priorityField  string = "PRIORITY"
+	hostNameField  string = "host_name"
+	messageField   string = "message"
+	timestampField string = "source_realtime_timestamp"
+	priorityField  string = "priority"
 	inputTypeField string = "input_type"
 
 	// Added fields
@@ -70,12 +70,12 @@ func hash(s string) int {
 
 func getPartition(lb *LogBuffer, numPartitions int) int {
 	var partition int
-	if tag, ok := lb.logEvent["container_tag"]; ok {
+	if tag, ok := lb.logEvent[containerTagField]; ok {
 		// same container - same instance
 		// Assuming equal config - if container moves, it should still
 		// end up at same logstash instance
 		partition = hash(tag.(string)) % numPartitions
-	} else if buftype, ok := lb.logEvent["logBufferingType"]; ok {
+	} else if buftype, ok := lb.logEvent[logBufferingTypeField]; ok {
 		// journalbeat does re-assembly based on logBufferingType
 		partition = hash(buftype.(string)) % numPartitions
 	} else if eventtype, ok := lb.logEvent["type"]; ok {
@@ -124,14 +124,14 @@ func (jb *Journalbeat) flushStaleLogMessages() {
 
 func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 	// check if it starts with space or tab
-	newLogMessage := event["message"].(string)
+	newLogMessage := event[messageField].(string)
 	logType := event[logBufferingTypeField].(string)
 
 	if newLogMessage != "" && (newLogMessage[0] == ' ' || newLogMessage[0] == '\t') {
 		// this is a continuation of previous line
 		if oldLog, found := jb.journalTypeOutstandingLogBuffer[logType]; found {
-			jb.journalTypeOutstandingLogBuffer[logType].logEvent["message"] =
-				oldLog.logEvent["message"].(string) + "\n" + newLogMessage
+			jb.journalTypeOutstandingLogBuffer[logType].logEvent[messageField] =
+				oldLog.logEvent[messageField].(string) + "\n" + newLogMessage
 		} else {
 			jb.journalTypeOutstandingLogBuffer[logType] = &LogBuffer{
 				time:     time.Now(),
@@ -269,6 +269,8 @@ func (jbe *JournalBeatExtension) sendEvent(event common.MapStr, rawEvent *sdjour
 	if newEvent[utcTimestampField] == nil {
 		newEvent[utcTimestampField] = int64(rawEvent.RealtimeTimestamp)
 	}
+
+
 
 	jbe.incomingLogEvents <- newEvent
 }
