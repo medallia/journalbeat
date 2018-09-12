@@ -17,23 +17,21 @@ package beater
 import (
 	"fmt"
 	"io/ioutil"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/coreos/go-systemd/sdjournal"
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
-	"github.com/elastic/beats/libbeat/processors"
 	"github.com/elastic/beats/libbeat/publisher"
 	"github.com/mheese/journalbeat/config"
 	"github.com/mheese/journalbeat/journal"
-	"github.com/rcrowley/go-metrics"
 )
 
 // Journalbeat is the main Journalbeat struct
 type Journalbeat struct {
+	*JournalBeatExtension
+
 	done   chan struct{}
 	config config.Config
 	client publisher.Client
@@ -41,14 +39,6 @@ type Journalbeat struct {
 	journal *sdjournal.Journal
 
 	cursorChan chan string
-
-	logstashClients                 []publisher.Client
-	numLogstashAvailable            int //corresponds to the number of downstream logstash aggregators available at startup.
-	journalTypeOutstandingLogBuffer map[string]*LogBuffer
-	incomingLogMessages             chan common.MapStr
-
-	logMessagesPublished metrics.Counter
-	logMessageDelay      metrics.Gauge
 }
 
 func (jb *Journalbeat) initJournal() error {
@@ -149,8 +139,10 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 		config:     config,
 		cursorChan: make(chan string),
 
-		incomingLogMessages:             make(chan common.MapStr, channelSize),
-		journalTypeOutstandingLogBuffer: make(map[string]*LogBuffer),
+		JournalBeatExtension: &JournalBeatExtension{
+			incomingLogEvents:               make(chan common.MapStr, channelSize),
+			journalTypeOutstandingLogBuffer: make(map[string]*LogBuffer),
+		},
 	}
 
 	if err = jb.initJournal(); err != nil {
@@ -179,77 +171,23 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 
 	jb.client = b.Publisher.Connect()
 
-	var err error
-	jb.numLogstashAvailable, err = b.Config.Output["logstash"].CountField("hosts")
-	if err != nil {
-		logp.Err("Invalid configuration for sending contents to logstash")
-		os.Exit(101)
+	if err := jb.processConfig(b); err != nil {
+		return err
 	}
-
-	for i := 0; i < jb.numLogstashAvailable; i++ {
-		newProcessors, err := processors.New(b.Config.Processors)
-		if err != nil {
-			return fmt.Errorf("error initializing processors: %v", err)
-		}
-
-		// override the hosts to pick one of the entries from the original hosts configuration.
-		newOutput, err := common.NewConfigFrom(b.Config.Output["logstash"])
-		if err != nil {
-			return fmt.Errorf("Failed to clone output config: %v", err)
-		}
-		err = shiftlist(b.Config.Output["logstash"], newOutput, "hosts", i)
-		if err != nil {
-			return fmt.Errorf("Failed to shift list %v", err)
-		}
-
-		newPublisher, err := publisher.New(b.Name, b.Version, map[string]*common.Config{"logstash": newOutput}, b.Config.Shipper, newProcessors)
-		if err != nil {
-			return fmt.Errorf("error initializing publisher: %v", err)
-		}
-
-		jb.logstashClients = append(jb.logstashClients, newPublisher.Connect())
-	}
-
-	commonFields := []string{hostNameField, messageField, priorityField}
 
 	for rawEvent := range journal.Follow(jb.journal, jb.done) {
-		event := common.MapStr{}
-		if _, ok := rawEvent.Fields[containerIdField]; ok {
-			selectedFields := append(commonFields, []string{containerTagField, containerIdField}...)
-			event = MapStrFromJournalEntry(
-				rawEvent,
-				jb.config.CleanFieldNames,
-				jb.config.ConvertToNumbers,
-				jb.config.MoveMetadataLocation,
-				selectedFields)
-			event["type"] = "container"
-			event["logBufferingType"] = rawEvent.Fields[containerIdField]
-		} else {
-			selectedFields := append(commonFields, []string{tagField, processField}...)
-			event = MapStrFromJournalEntry(
-				rawEvent,
-				jb.config.CleanFieldNames,
-				jb.config.ConvertToNumbers,
-				jb.config.MoveMetadataLocation,
-				selectedFields)
-			event["type"] = rawEvent.Fields[tagField]
-			event["logBufferingType"] = rawEvent.Fields[processField]
-		}
+		event := MapStrFromJournalEntry(
+			rawEvent,
+			jb.config.CleanFieldNames,
+			jb.config.ConvertToNumbers,
+			jb.config.MoveMetadataLocation)
 
+		// TODO: type and input_type should be derived from the system journal
+		event["type"] = jb.config.DefaultType
 		event["input_type"] = jb.config.DefaultType
-		event["cursor"] = rawEvent.Cursor
-		if tmStr, ok := rawEvent.Fields[timestampField]; ok {
-			tm, err := strconv.ParseInt(tmStr, 10, 64)
-			if err == nil {
-				event["utcTimestamp"] = tm
-			} else {
-				event["utcTimestamp"] = int64(rawEvent.RealtimeTimestamp)
-			}
-		} else {
-			event["utcTimestamp"] = int64(rawEvent.RealtimeTimestamp)
-		}
+		event["@timestamp"] = common.Time(time.Unix(0, int64(rawEvent.RealtimeTimestamp)*1000))
 
-		jb.incomingLogMessages <- event
+		jb.sendEvent(event, rawEvent)
 	}
 	return nil
 }
@@ -258,8 +196,5 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 func (jb *Journalbeat) Stop() {
 	logp.Info("Stopping Journalbeat")
 	close(jb.done)
-	for i := 0; i < jb.numLogstashAvailable; i++ {
-		jb.logstashClients[i].Close()
-	}
-	logp.Info("Journalbeat stopped")
+	jb.close()
 }

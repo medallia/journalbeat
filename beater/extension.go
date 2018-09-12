@@ -1,8 +1,12 @@
 package beater
 
 import (
+	"fmt"
+	"github.com/coreos/go-systemd/sdjournal"
+	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
+	"github.com/elastic/beats/libbeat/processors"
 	"github.com/elastic/beats/libbeat/publisher"
 	"github.com/f0ster/go-metrics-influxdb"
 	"github.com/rcrowley/go-metrics"
@@ -10,24 +14,27 @@ import (
 	"hash/fnv"
 	"net"
 	"os"
+	"strconv"
 	"time"
 )
 
 const (
 	metricPrefix string = "logging.journalbeat"
-	//These are the fields for the container logs.
+
+	// These are the fields for the container logs.
 	containerTagField string = "CONTAINER_TAG"
 	containerIdField  string = "CONTAINER_ID"
 
-	//These are the fields for the host process logs.
+	// These are the fields for the host native process logs.
 	tagField     string = "SYSLOG_IDENTIFIER"
 	processField string = "_PID"
 
-	//Common fields for both container and host process logs.
+	// Common fields for both container and host process logs.
 	hostNameField  string = "_HOST_NAME"
 	messageField   string = "MESSAGE"
 	timestampField string = "_SOURCE_REALTIME_TIMESTAMP"
 	priorityField  string = "PRIORITY"
+	inputTypeField string = "input_type"
 
 	channelSize  int   = 1000
 	microseconds int64 = 1000000
@@ -39,6 +46,17 @@ type LogBuffer struct {
 	logType  string
 }
 
+type JournalBeatExtension struct {
+	// corresponds to the number of downstream logstash aggregators available at startup.
+	numLogstashAvailable            int
+	logstashClients                 []publisher.Client
+	journalTypeOutstandingLogBuffer map[string]*LogBuffer
+	incomingLogEvents               chan common.MapStr
+
+	logMessagesPublished metrics.Counter
+	logMessageDelay      metrics.Gauge
+}
+
 func hash(s string) int {
 	h := fnv.New32a()
 	h.Write([]byte(s))
@@ -46,7 +64,7 @@ func hash(s string) int {
 }
 
 func getPartition(lb *LogBuffer, numPartitions int) int {
-	partition := 0
+	var partition int
 	if tag, ok := lb.logEvent["container_tag"]; ok {
 		// same container - same instance
 		// Assuming equal config - if container moves, it should still
@@ -62,7 +80,7 @@ func getPartition(lb *LogBuffer, numPartitions int) int {
 }
 
 // "circular shift" a config list
-func shiftlist(cfg *common.Config, target *common.Config, key string, shift int) error {
+func shiftList(cfg *common.Config, target *common.Config, key string, shift int) error {
 	count, err := cfg.CountField(key)
 	if err != nil {
 		return err
@@ -90,7 +108,7 @@ func shiftlist(cfg *common.Config, target *common.Config, key string, shift int)
 func (jb *Journalbeat) flushStaleLogMessages() {
 	for logType, logBuffer := range jb.journalTypeOutstandingLogBuffer {
 		if time.Now().Sub(logBuffer.time).Seconds() >= jb.config.FlushLogInterval.Seconds() {
-			//this message has been sitting in our buffer for more than 30 seconds time to flush it.
+			// this message has been sitting in our buffer for more than XX seconds, time to flush it.
 			partition := getPartition(logBuffer, jb.numLogstashAvailable)
 			jb.logstashClients[partition].PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
 			delete(jb.journalTypeOutstandingLogBuffer, logType)
@@ -100,12 +118,12 @@ func (jb *Journalbeat) flushStaleLogMessages() {
 }
 
 func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
-	//check if it starts with space or tab
+	// check if it starts with space or tab
 	newLogMessage := event["message"].(string)
 	logType := event["logBufferingType"].(string)
 
 	if newLogMessage != "" && (newLogMessage[0] == ' ' || newLogMessage[0] == '\t') {
-		//this is a continuation of previous line
+		// this is a continuation of previous line
 		if oldLog, found := jb.journalTypeOutstandingLogBuffer[logType]; found {
 			jb.journalTypeOutstandingLogBuffer[logType].logEvent["message"] =
 				oldLog.logEvent["message"].(string) + "\n" + newLogMessage
@@ -125,10 +143,10 @@ func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 			logEvent: event,
 		}
 		if found {
-			//flush the older logs to async.
+			// flush the older logs to async.
 			partition := getPartition(oldLogBuffer, jb.numLogstashAvailable)
 			jb.logstashClients[partition].PublishEvent(oldLogBuffer.logEvent, publisher.Guaranteed)
-			//update stats if enabled
+			// update stats if enabled
 			if jb.config.MetricsEnabled {
 				jb.logMessagesPublished.Inc(1)
 				jb.logMessageDelay.Update(time.Now().Unix() - (event["utcTimestamp"].(int64) / microseconds))
@@ -137,7 +155,7 @@ func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 	}
 }
 
-// TODO optimize this later but for now walkthru all the different types. Use priority queue/multiple threads if needed.
+// TODO optimize this later but for now walk through all the different types. Use priority queue/multiple threads if needed.
 func (jb *Journalbeat) logProcessor() {
 	logp.Info("Started the thread which consumes log messages and publishes them")
 	tickChan := time.NewTicker(jb.config.FlushLogInterval)
@@ -148,7 +166,7 @@ func (jb *Journalbeat) logProcessor() {
 			// which have been sitting there for some time.
 			jb.flushStaleLogMessages()
 
-		case channelEvent := <-jb.incomingLogMessages:
+		case channelEvent := <-jb.incomingLogEvents:
 			jb.flushOrBufferLogs(channelEvent)
 		}
 	}
@@ -156,6 +174,10 @@ func (jb *Journalbeat) logProcessor() {
 
 func (jb *Journalbeat) startMetricsReporters() {
 	if jb.config.MetricsEnabled {
+		registry := metrics.NewPrefixedRegistry(metricPrefix)
+		jb.logMessageDelay = metrics.NewRegisteredGauge("MessageConsumptionDelay", registry)
+		jb.logMessagesPublished = metrics.NewRegisteredCounter("MessagesPublished", registry)
+
 		if jb.config.WavefrontCollector != "" {
 			logp.Info("Wavefront metrics are enabled. Sending to " + jb.config.WavefrontCollector)
 			addr, err := net.ResolveTCPAddr("tcp", jb.config.WavefrontCollector)
@@ -163,9 +185,6 @@ func (jb *Journalbeat) startMetricsReporters() {
 				logp.Info("Metrics address parsed")
 
 				// make sure the configuration is sane.
-				registry := metrics.DefaultRegistry
-				jb.logMessageDelay = metrics.NewRegisteredGauge("MessageConsumptionDelay", registry)
-				jb.logMessagesPublished = metrics.NewRegisteredCounter("MessagesPublished", registry)
 
 				hostname, err := os.Hostname()
 				if err == nil {
@@ -177,7 +196,6 @@ func (jb *Journalbeat) startMetricsReporters() {
 					Registry:      registry,
 					FlushInterval: jb.config.MetricsInterval,
 					DurationUnit:  time.Nanosecond,
-					Prefix:        metricPrefix,
 					HostTags:      jb.config.MetricTags,
 					Percentiles:   []float64{0.5, 0.75, 0.95, 0.99, 0.999},
 				}
@@ -196,7 +214,7 @@ func (jb *Journalbeat) startMetricsReporters() {
 		if jb.config.InfluxDBURL != "" {
 			logp.Info("InfluxDB metrics are enabled. Sending to " + jb.config.InfluxDBURL)
 			go influxdb.InfluxDB(
-				metrics.DefaultRegistry,   // metrics registry
+				registry,                  // metrics registry
 				jb.config.MetricsInterval, // interval
 				jb.config.InfluxDBURL,     // the InfluxDB url
 				jb.config.InfluxDatabase,  // your InfluxDB database
@@ -205,4 +223,118 @@ func (jb *Journalbeat) startMetricsReporters() {
 			)
 		}
 	}
+}
+
+var commonFields = StringSet{
+	hostNameField: true,
+	messageField:  true,
+	priorityField: true,
+	inputTypeField: true,
+}
+
+var containerFields = commonFields.union(StringSet{
+	containerTagField: true,
+	containerIdField:  true,
+})
+
+var nativeFields = commonFields.union(StringSet{
+	tagField:     true,
+	processField: true,
+})
+
+func (jbe *JournalBeatExtension) sendEvent(event common.MapStr, rawEvent *sdjournal.JournalEntry) {
+	var newEvent common.MapStr
+	if containerId, exists := rawEvent.Fields[containerIdField]; exists {
+		newEvent = cloneFields(event, containerFields)
+		newEvent["type"] = "container"
+		newEvent["logBufferingType"] = containerId
+	} else {
+		newEvent = cloneFields(event, nativeFields)
+		newEvent["type"] = rawEvent.Fields[tagField]
+		newEvent["logBufferingType"] = rawEvent.Fields[processField]
+	}
+
+	newEvent["cursor"] = rawEvent.Cursor
+
+	if tmStr, ok := rawEvent.Fields[timestampField]; ok {
+		if ts, err := strconv.ParseInt(tmStr, 10, 64); err == nil {
+			newEvent["utcTimestamp"] = ts
+		} else {
+			newEvent["utcTimestamp"] = int64(rawEvent.RealtimeTimestamp)
+		}
+	} else {
+		newEvent["utcTimestamp"] = int64(rawEvent.RealtimeTimestamp)
+	}
+
+	jbe.incomingLogEvents <- newEvent
+}
+
+type StringSet map[string]bool
+
+func (s1 StringSet) union(s2 StringSet) StringSet {
+	result := StringSet{}
+	for k := range s1 {
+		result[k] = true
+	}
+	for k := range s2 {
+		result[k] = true
+	}
+	return result
+}
+
+func cloneFields(event common.MapStr, fields StringSet) common.MapStr {
+	result := common.MapStr{}
+	for k, v := range event {
+		if fields[k] {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+func (jbe *JournalBeatExtension) processConfig(b *beat.Beat) error {
+	var err error
+
+	if b.Config.Output["logstash"] == nil {
+		// TODO we might want to make this work with other outputs too
+		logp.Err("Invalid configuration, logstash output not defined")
+		os.Exit(101)
+	}
+
+	if jbe.numLogstashAvailable, err = b.Config.Output["logstash"].CountField("hosts"); err != nil {
+		logp.Err("Invalid configuration for sending contents to logstash")
+		os.Exit(101)
+	}
+
+	for i := 0; i < jbe.numLogstashAvailable; i++ {
+		newProcessors, err := processors.New(b.Config.Processors)
+		if err != nil {
+			return fmt.Errorf("error initializing processors: %v", err)
+		}
+
+		// override the hosts to pick one of the entries from the original hosts configuration.
+		newOutput, err := common.NewConfigFrom(b.Config.Output["logstash"])
+		if err != nil {
+			return fmt.Errorf("Failed to clone output config: %v", err)
+		}
+		err = shiftList(b.Config.Output["logstash"], newOutput, "hosts", i)
+		if err != nil {
+			return fmt.Errorf("Failed to shift list %v", err)
+		}
+
+		newPublisher, err := publisher.New(b.Name, b.Version, map[string]*common.Config{"logstash": newOutput}, b.Config.Shipper, newProcessors)
+		if err != nil {
+			return fmt.Errorf("error initializing publisher: %v", err)
+		}
+
+		jbe.logstashClients = append(jbe.logstashClients, newPublisher.Connect())
+	}
+	return nil
+}
+
+func (jbe *JournalBeatExtension) close() {
+	for i := 0; i < jbe.numLogstashAvailable; i++ {
+		jbe.logstashClients[i].Close()
+	}
+	logp.Info("journalbeat extension stopped")
 }
