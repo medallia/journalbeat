@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	metricPrefix string = "logging.journalbeat"
+	metricPrefix string = "logging.journalbeat."
 
 	// These are the fields for the container logs.
 	containerTagField string = "CONTAINER_TAG"
@@ -35,6 +35,11 @@ const (
 	timestampField string = "_SOURCE_REALTIME_TIMESTAMP"
 	priorityField  string = "PRIORITY"
 	inputTypeField string = "input_type"
+
+	// Added fields
+	utcTimestampField     string = "utcTimestamp"
+	cursorField           string = "cursor"
+	logBufferingTypeField string = "logBufferingType"
 
 	channelSize  int   = 1000
 	microseconds int64 = 1000000
@@ -112,7 +117,7 @@ func (jb *Journalbeat) flushStaleLogMessages() {
 			partition := getPartition(logBuffer, jb.numLogstashAvailable)
 			jb.logstashClients[partition].PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
 			delete(jb.journalTypeOutstandingLogBuffer, logType)
-			jb.cursorChan <- logBuffer.logEvent["cursor"].(string)
+			jb.cursorChan <- logBuffer.logEvent[cursorField].(string)
 		}
 	}
 }
@@ -120,7 +125,7 @@ func (jb *Journalbeat) flushStaleLogMessages() {
 func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 	// check if it starts with space or tab
 	newLogMessage := event["message"].(string)
-	logType := event["logBufferingType"].(string)
+	logType := event[logBufferingTypeField].(string)
 
 	if newLogMessage != "" && (newLogMessage[0] == ' ' || newLogMessage[0] == '\t') {
 		// this is a continuation of previous line
@@ -130,7 +135,7 @@ func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 		} else {
 			jb.journalTypeOutstandingLogBuffer[logType] = &LogBuffer{
 				time:     time.Now(),
-				logType:  event["logBufferingType"].(string),
+				logType:  event[logBufferingTypeField].(string),
 				logEvent: event,
 			}
 		}
@@ -139,7 +144,7 @@ func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 		oldLogBuffer, found := jb.journalTypeOutstandingLogBuffer[logType]
 		jb.journalTypeOutstandingLogBuffer[logType] = &LogBuffer{
 			time:     time.Now(),
-			logType:  event["logBufferingType"].(string),
+			logType:  event[logBufferingTypeField].(string),
 			logEvent: event,
 		}
 		if found {
@@ -149,7 +154,7 @@ func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 			// update stats if enabled
 			if jb.config.MetricsEnabled {
 				jb.logMessagesPublished.Inc(1)
-				jb.logMessageDelay.Update(time.Now().Unix() - (event["utcTimestamp"].(int64) / microseconds))
+				jb.logMessageDelay.Update(time.Now().Unix() - (event[utcTimestampField].(int64) / microseconds))
 			}
 		}
 	}
@@ -226,9 +231,9 @@ func (jb *Journalbeat) startMetricsReporters() {
 }
 
 var commonFields = StringSet{
-	hostNameField: true,
-	messageField:  true,
-	priorityField: true,
+	hostNameField:  true,
+	messageField:   true,
+	priorityField:  true,
 	inputTypeField: true,
 }
 
@@ -247,23 +252,22 @@ func (jbe *JournalBeatExtension) sendEvent(event common.MapStr, rawEvent *sdjour
 	if containerId, exists := rawEvent.Fields[containerIdField]; exists {
 		newEvent = cloneFields(event, containerFields)
 		newEvent["type"] = "container"
-		newEvent["logBufferingType"] = containerId
+		newEvent[logBufferingTypeField] = containerId
 	} else {
 		newEvent = cloneFields(event, nativeFields)
 		newEvent["type"] = rawEvent.Fields[tagField]
-		newEvent["logBufferingType"] = rawEvent.Fields[processField]
+		newEvent[logBufferingTypeField] = rawEvent.Fields[processField]
 	}
 
-	newEvent["cursor"] = rawEvent.Cursor
+	newEvent[cursorField] = rawEvent.Cursor
 
 	if tmStr, ok := rawEvent.Fields[timestampField]; ok {
 		if ts, err := strconv.ParseInt(tmStr, 10, 64); err == nil {
-			newEvent["utcTimestamp"] = ts
-		} else {
-			newEvent["utcTimestamp"] = int64(rawEvent.RealtimeTimestamp)
+			newEvent[utcTimestampField] = ts
 		}
-	} else {
-		newEvent["utcTimestamp"] = int64(rawEvent.RealtimeTimestamp)
+	}
+	if newEvent[utcTimestampField] == nil {
+		newEvent[utcTimestampField] = int64(rawEvent.RealtimeTimestamp)
 	}
 
 	jbe.incomingLogEvents <- newEvent
