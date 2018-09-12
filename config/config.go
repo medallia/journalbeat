@@ -74,11 +74,14 @@ var (
 		CursorFlushPeriod:  5 * time.Second,
 		CursorSeekFallback: SeekPositionTail,
 		DefaultType:        "journal",
+
+		MetricsEnabled:     false,
 		FlushLogInterval:   30 * time.Second,
 		MetricsInterval:    10 * time.Second,
-		MetricsEnabled:     false,
 		WavefrontCollector: "",
 		MetricTags:         map[string]string{},
+		InfluxDBURL:        "",
+		InfluxDatabase:     "",
 	}
 )
 
