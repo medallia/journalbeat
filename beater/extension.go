@@ -249,28 +249,26 @@ var nativeFields = commonFields.union(StringSet{
 
 func (jbe *JournalBeatExtension) sendEvent(event common.MapStr, rawEvent *sdjournal.JournalEntry) {
 	var newEvent common.MapStr
-	if containerId, exists := rawEvent.Fields[containerIdField]; exists {
+	if containerId, exists := event[containerIdField]; exists {
 		newEvent = cloneFields(event, containerFields)
 		newEvent["type"] = "container"
 		newEvent[logBufferingTypeField] = containerId
 	} else {
 		newEvent = cloneFields(event, nativeFields)
-		newEvent["type"] = rawEvent.Fields[tagField]
-		newEvent[logBufferingTypeField] = rawEvent.Fields[processField]
+		newEvent["type"] = event[tagField]
+		newEvent[logBufferingTypeField] = event[processField]
 	}
 
 	newEvent[cursorField] = rawEvent.Cursor
 
-	if tmStr, ok := rawEvent.Fields[timestampField]; ok {
-		if ts, err := strconv.ParseInt(tmStr, 10, 64); err == nil {
+	if tmStr, ok := event[timestampField]; ok {
+		if ts, err := strconv.ParseInt(tmStr.(string), 10, 64); err == nil {
 			newEvent[utcTimestampField] = ts
 		}
 	}
 	if newEvent[utcTimestampField] == nil {
 		newEvent[utcTimestampField] = int64(rawEvent.RealtimeTimestamp)
 	}
-
-
 
 	jbe.incomingLogEvents <- newEvent
 }
