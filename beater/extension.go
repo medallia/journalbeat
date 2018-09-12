@@ -68,17 +68,17 @@ func hash(s string) int {
 	return int(h.Sum32())
 }
 
-func getPartition(lb *LogBuffer, numPartitions int) int {
+func getPartition(logBuffer *LogBuffer, numPartitions int) int {
 	var partition int
-	if tag, ok := lb.logEvent[containerTagField]; ok {
+	if tag, ok := logBuffer.logEvent[containerTagField]; ok {
 		// same container - same instance
 		// Assuming equal config - if container moves, it should still
 		// end up at same logstash instance
 		partition = hash(tag.(string)) % numPartitions
-	} else if buftype, ok := lb.logEvent[logBufferingTypeField]; ok {
+	} else if buftype, ok := logBuffer.logEvent[logBufferingTypeField]; ok {
 		// journalbeat does re-assembly based on logBufferingType
 		partition = hash(buftype.(string)) % numPartitions
-	} else if eventtype, ok := lb.logEvent["type"]; ok {
+	} else if eventtype, ok := logBuffer.logEvent["type"]; ok {
 		partition = hash(eventtype.(string)) % numPartitions
 	}
 	return partition
@@ -114,8 +114,7 @@ func (jb *Journalbeat) flushStaleLogMessages() {
 	for logType, logBuffer := range jb.journalTypeOutstandingLogBuffer {
 		if time.Now().Sub(logBuffer.time).Seconds() >= jb.config.FlushLogInterval.Seconds() {
 			// this message has been sitting in our buffer for more than XX seconds, time to flush it.
-			partition := getPartition(logBuffer, jb.numLogstashAvailable)
-			jb.logstashClients[partition].PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
+			jb.publishEvent(logBuffer)
 			delete(jb.journalTypeOutstandingLogBuffer, logType)
 			jb.cursorChan <- logBuffer.logEvent[cursorField].(string)
 		}
@@ -128,35 +127,39 @@ func (jb *Journalbeat) flushOrBufferLogs(event common.MapStr) {
 	logType := event[logBufferingTypeField].(string)
 
 	if newLogMessage != "" && (newLogMessage[0] == ' ' || newLogMessage[0] == '\t') {
-		// this is a continuation of previous line
+		// we consider this is a continuation of previous line
 		if oldLog, found := jb.journalTypeOutstandingLogBuffer[logType]; found {
 			jb.journalTypeOutstandingLogBuffer[logType].logEvent[messageField] =
 				oldLog.logEvent[messageField].(string) + "\n" + newLogMessage
 		} else {
-			jb.journalTypeOutstandingLogBuffer[logType] = &LogBuffer{
-				time:     time.Now(),
-				logType:  event[logBufferingTypeField].(string),
-				logEvent: event,
-			}
+			jb.journalTypeOutstandingLogBuffer[logType] = toLogBuffer(event)
 		}
 		jb.journalTypeOutstandingLogBuffer[logType].time = time.Now()
 	} else {
 		oldLogBuffer, found := jb.journalTypeOutstandingLogBuffer[logType]
-		jb.journalTypeOutstandingLogBuffer[logType] = &LogBuffer{
-			time:     time.Now(),
-			logType:  event[logBufferingTypeField].(string),
-			logEvent: event,
-		}
+		jb.journalTypeOutstandingLogBuffer[logType] = toLogBuffer(event)
 		if found {
 			// flush the older logs to async.
-			partition := getPartition(oldLogBuffer, jb.numLogstashAvailable)
-			jb.logstashClients[partition].PublishEvent(oldLogBuffer.logEvent, publisher.Guaranteed)
+			jb.publishEvent(oldLogBuffer)
 			// update stats if enabled
 			if jb.config.MetricsEnabled {
 				jb.logMessagesPublished.Inc(1)
 				jb.logMessageDelay.Update(time.Now().Unix() - (event[utcTimestampField].(int64) / microseconds))
 			}
 		}
+	}
+}
+
+func (jbe *JournalBeatExtension) publishEvent(logBuffer *LogBuffer) {
+	partition := getPartition(logBuffer, jbe.numLogstashAvailable)
+	jbe.logstashClients[partition].PublishEvent(logBuffer.logEvent, publisher.Guaranteed)
+}
+
+func toLogBuffer(event common.MapStr) *LogBuffer {
+	return &LogBuffer{
+		time:     time.Now(),
+		logType:  event[logBufferingTypeField].(string),
+		logEvent: event,
 	}
 }
 
