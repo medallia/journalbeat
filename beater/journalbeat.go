@@ -176,6 +176,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 	}
 
 	for rawEvent := range journal.Follow(jb.journal, jb.done) {
+		//convert sdjournal.JournalEntry to common.MapStr
 		event := MapStrFromJournalEntry(
 			rawEvent,
 			jb.config.CleanFieldNames,

@@ -54,6 +54,7 @@ func MapStrFromJournalEntry(ev *sdjournal.JournalEntry, cleanKeys bool, convertT
 		}
 		target[nk] = nv
 	}
+
 	return m
 }
 
