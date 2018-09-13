@@ -9,10 +9,16 @@
 			"revisionTime": "2016-12-15T15:18:51Z"
 		},
 		{
-			"checksumSHA1": "u7jr6ys5VV/ywoauQ3YQZJs1yO8=",
+			"checksumSHA1": "spyv5/YFBjYyZLZa1U2LBfDR8PM=",
+			"path": "github.com/beorn7/perks/quantile",
+			"revision": "4c0e84591b9aa9e6dcfdf3e020114cd81f89d5f9",
+			"revisionTime": "2016-08-04T10:47:26Z"
+		},
+		{
+			"checksumSHA1": "cEszpxh1szqTb440ze4hm/Vfm40=",
 			"path": "github.com/coreos/go-systemd/sdjournal",
-			"revision": "7f737a6bd38784c73b5bf5cd54d9b1d23295e3a0",
-			"revisionTime": "2017-01-13T10:31:45Z"
+			"revision": "eee3db372b31153ca0b90702e165948699803fd0",
+			"revisionTime": "2018-08-28T14:03:53Z"
 		},
 		{
 			"checksumSHA1": "O8c/VKtW34XPJNNlyeb/im8vWSI=",
@@ -25,6 +31,12 @@
 			"path": "github.com/davecgh/go-spew/spew",
 			"revision": "346938d642f2ec3594ed81d874461961cd0faa76",
 			"revisionTime": "2016-10-29T20:57:26Z"
+		},
+		{
+			"checksumSHA1": "+9c0WKRHkJjE4GhPwk+f6t1vfGs=",
+			"path": "github.com/deathowl/go-metrics-prometheus",
+			"revision": "091131e49c335a452af504b8104ac262da41a6e9",
+			"revisionTime": "2017-07-31T14:15:57Z"
 		},
 		{
 			"checksumSHA1": "y2Kh4iPlgCPXSGTCcFpzePYdzzg=",
@@ -339,12 +351,6 @@
 			"revisionTime": "2016-11-22T22:47:13Z"
 		},
 		{
-			"checksumSHA1": "FMi+w3UIWYNVB7l8SJF8rrHOwM0=",
-			"path": "github.com/f0ster/go-metrics-influxdb",
-			"revision": "4363dad69b44bd4906e4e33b8d1233742782d457",
-			"revisionTime": "2017-05-17T23:30:05Z"
-		},
-		{
 			"checksumSHA1": "2UmMbNHc8FBr98mJFN1k8ISOIHk=",
 			"path": "github.com/garyburd/redigo/internal",
 			"revision": "0708def8b0cf3a05acdf44a7f28b864c2958921d",
@@ -355,6 +361,12 @@
 			"path": "github.com/garyburd/redigo/redis",
 			"revision": "0708def8b0cf3a05acdf44a7f28b864c2958921d",
 			"revisionTime": "2016-12-11T20:37:18Z"
+		},
+		{
+			"checksumSHA1": "kBeNcaKk56FguvPSUCEaH6AxpRc=",
+			"path": "github.com/golang/protobuf/proto",
+			"revision": "8ee79997227bf9b34611aee7946ae64735e6fd93",
+			"revisionTime": "2016-11-17T03:31:26Z"
 		},
 		{
 			"checksumSHA1": "W+E/2xXcE1GmJ0Qb784ald0Fn6I=",
@@ -411,6 +423,12 @@
 			"revisionTime": "2016-10-16T15:41:25Z"
 		},
 		{
+			"checksumSHA1": "bKMZjd2wPw13VwoE7mBeSv5djFA=",
+			"path": "github.com/matttproud/golang_protobuf_extensions/pbutil",
+			"revision": "c12348ce28de40eed0136aa2b644d0ee0650e56c",
+			"revisionTime": "2016-04-24T11:30:07Z"
+		},
+		{
 			"checksumSHA1": "FlEI/BO8wk8bZR0Gz7OfwSaNZ0s=",
 			"path": "github.com/nranchev/go-libGeoIP",
 			"revision": "c78e8bd2dd3599feb21fd30886043979e82fe948",
@@ -435,6 +453,48 @@
 			"revisionTime": "2016-10-29T09:36:37Z"
 		},
 		{
+			"checksumSHA1": "rILQFeC64+uX7CVKL23a9ACt6fU=",
+			"path": "github.com/prometheus/client_golang/prometheus",
+			"revision": "c317fb74746eac4fc65fe3909195f4cf67c5562a",
+			"revisionTime": "2017-01-25T12:09:23Z"
+		},
+		{
+			"checksumSHA1": "lG3//eDlwqA4IOuAPrNtLh9G0TA=",
+			"path": "github.com/prometheus/client_golang/prometheus/promhttp",
+			"revision": "c317fb74746eac4fc65fe3909195f4cf67c5562a",
+			"revisionTime": "2017-01-25T12:09:23Z"
+		},
+		{
+			"checksumSHA1": "DvwvOlPNAgRntBzt3b3OSRMS2N4=",
+			"path": "github.com/prometheus/client_model/go",
+			"revision": "fa8ad6fec33561be4280a8f0514318c79d7f6cb6",
+			"revisionTime": "2015-02-12T10:17:44Z"
+		},
+		{
+			"checksumSHA1": "Wtpzndm/+bdwwNU5PCTfb4oUhc8=",
+			"path": "github.com/prometheus/common/expfmt",
+			"revision": "dd2f054febf4a6c00f2343686efb775948a8bff4",
+			"revisionTime": "2017-01-08T23:12:12Z"
+		},
+		{
+			"checksumSHA1": "GWlM3d2vPYyNATtTFgftS10/A9w=",
+			"path": "github.com/prometheus/common/internal/bitbucket.org/ww/goautoneg",
+			"revision": "dd2f054febf4a6c00f2343686efb775948a8bff4",
+			"revisionTime": "2017-01-08T23:12:12Z"
+		},
+		{
+			"checksumSHA1": "vopCLXHzYm+3l5fPKOf4/fQwrCM=",
+			"path": "github.com/prometheus/common/model",
+			"revision": "dd2f054febf4a6c00f2343686efb775948a8bff4",
+			"revisionTime": "2017-01-08T23:12:12Z"
+		},
+		{
+			"checksumSHA1": "usUy/UxFXpMusOWgLNDNp4+s/ks=",
+			"path": "github.com/prometheus/procfs",
+			"revision": "1878d9fbb537119d24b21ca07effd591627cd160",
+			"revisionTime": "2017-01-28T16:01:23Z"
+		},
+		{
 			"checksumSHA1": "an5RM8wjgPPloolUUYkvEncbHu4=",
 			"path": "github.com/rcrowley/go-metrics",
 			"revision": "e2704e165165ec55d062f5919b4b29494e9fa790",
@@ -451,12 +511,6 @@
 			"path": "github.com/satori/go.uuid",
 			"revision": "b061729afc07e77a8aa4fad0a2fd840958f1942a",
 			"revisionTime": "2016-09-27T10:08:44Z"
-		},
-		{
-			"checksumSHA1": "gJ1749/q9jf+sWeMGh9rSi9Cqrs=",
-			"path": "github.com/wavefronthq/go-metrics-wavefront",
-			"revision": "c51dfd29f823a1f4726abcc5d8644f3d6f459217",
-			"revisionTime": "2017-04-21T22:06:18Z"
 		},
 		{
 			"checksumSHA1": "LvdVRE0FqdR68SvVpRkHs1rxhcA=",

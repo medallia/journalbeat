@@ -142,6 +142,7 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 		JournalBeatExtension: &JournalBeatExtension{
 			incomingLogEvents:               make(chan common.MapStr, channelSize),
 			journalTypeOutstandingLogBuffer: make(map[string]*LogBuffer),
+			metrics:                         &JournalBeatMetrics{},
 		},
 	}
 
@@ -166,7 +167,9 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 		go jb.writeCursorLoop()
 	}
 
-	jb.startMetricsReporters()
+	if jb.config.MetricsEnabled {
+		jb.metrics.start(jb.config.MetricsHttpAddr)
+	}
 	go jb.logProcessor()
 
 	jb.client = b.Publisher.Connect()

@@ -37,13 +37,9 @@ type Config struct {
 	Units                []string      `config:"units"`
 
 	// Medallia added
-	MetricsEnabled     bool              `config:"enable_metrics"`
-	FlushLogInterval   time.Duration     `config:"flush_log_interval"`
-	MetricsInterval    time.Duration     `config:"emit_metrics_interval"`
-	WavefrontCollector string            `config:"wavefront_collector"`
-	MetricTags         map[string]string `config:"wavefront_tags"`
-	InfluxDBURL        string            `config:"influxdb_url"`
-	InfluxDatabase     string            `config:"influxdb_db"`
+	MetricsEnabled   bool          `config:"enable_metrics"`
+	FlushLogInterval time.Duration `config:"flush_log_interval"`
+	MetricsHttpAddr  string        `config:"metrics_http_addr"`
 }
 
 // Named constants for the journal cursor placement positions
@@ -75,22 +71,16 @@ var (
 		CursorSeekFallback: SeekPositionTail,
 		DefaultType:        "journal",
 
-		MetricsEnabled:     false,
-		FlushLogInterval:   30 * time.Second,
-		MetricsInterval:    10 * time.Second,
-		WavefrontCollector: "",
-		MetricTags:         map[string]string{},
-		InfluxDBURL:        "",
-		InfluxDatabase:     "",
+		MetricsEnabled:   false,
+		FlushLogInterval: 30 * time.Second,
+		MetricsHttpAddr:  ":8008",
 	}
 )
 
 // Validate turns Config into implementation of Validator and will be executed when Unpack is called
 func (config *Config) Validate() error {
-	if config.MetricsEnabled {
-		if config.WavefrontCollector == "" && config.InfluxDBURL == "" {
-			return fmt.Errorf("Metrics enabled but both wavefront collector and influx url are empty")
-		}
+	if config.MetricsEnabled && config.MetricsHttpAddr == "" {
+		return fmt.Errorf("metrics enabled but http address is empty")
 	}
 
 	// validate MoveMetadataLocation against the regexp. We don't want extra dots to appear
