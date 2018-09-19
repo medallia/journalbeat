@@ -72,7 +72,7 @@ var (
 		DefaultType:        "journal",
 
 		MetricsEnabled:   false,
-		FlushLogInterval: 30 * time.Second,
+		FlushLogInterval: 10 * time.Second,
 		MetricsHttpAddr:  ":8008",
 	}
 )

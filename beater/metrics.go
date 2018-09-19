@@ -16,8 +16,13 @@ const (
 )
 
 type JournalBeatMetrics struct {
-	logMessagesPublished metrics.Counter
-	logMessageDelay      metrics.Gauge
+	logMessagesPublished    metrics.Counter
+	logMessageDelay         metrics.Gauge
+	journalReadErrors       metrics.Counter
+	journalEntriesRead      metrics.Counter
+	journalEntriesContainer metrics.Counter
+	journalEntriesNative    metrics.Counter
+	journalEntriesUnknown   metrics.Counter
 
 	httpServer *http.Server
 }
@@ -39,12 +44,17 @@ func startMetricsHttpServer(addr string, prometheusRegistry prometheus.Gatherer)
 	return srv
 }
 
-func (jbm *JournalBeatMetrics) start(httpAddr string) {
+func (jbm *JournalBeatMetrics) init(metricsEnabled bool, httpAddr string) {
 	registry := metrics.NewPrefixedRegistry(metricPrefix)
 	jbm.logMessageDelay = metrics.NewRegisteredGauge("MessageConsumptionDelay", registry)
 	jbm.logMessagesPublished = metrics.NewRegisteredCounter("MessagesPublished", registry)
+	jbm.journalReadErrors = metrics.NewRegisteredCounter("JournalReadErrors", registry)
+	jbm.journalEntriesRead = metrics.NewRegisteredCounter("JournalEntriesRead", registry)
+	jbm.journalEntriesContainer = metrics.NewRegisteredCounter("JournalEntriesContainer", registry)
+	jbm.journalEntriesNative = metrics.NewRegisteredCounter("JournalEntriesNative", registry)
+	jbm.journalEntriesUnknown = metrics.NewRegisteredCounter("JournalEntriesUnknown", registry)
 
-	if httpAddr != "" {
+	if metricsEnabled {
 		prometheusRegistry := prometheus.DefaultRegisterer
 		jbm.httpServer = startMetricsHttpServer(httpAddr, prometheus.DefaultGatherer)
 		pClient := prometheusmetrics.NewPrometheusProvider(registry, "", "", prometheusRegistry, 1*time.Second)

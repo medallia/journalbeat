@@ -140,9 +140,9 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 		cursorChan: make(chan string),
 
 		JournalBeatExtension: &JournalBeatExtension{
-			incomingLogEvents:               make(chan common.MapStr, channelSize),
-			journalTypeOutstandingLogBuffer: make(map[string]*LogBuffer),
-			metrics:                         &JournalBeatMetrics{},
+			incomingLogEvents: make(chan common.MapStr, channelSize),
+			logBuffersByType:  make(map[string]*LogBuffer),
+			metrics:           &JournalBeatMetrics{},
 		},
 	}
 
@@ -167,18 +167,15 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 		go jb.writeCursorLoop()
 	}
 
-	if jb.config.MetricsEnabled {
-		jb.metrics.start(jb.config.MetricsHttpAddr)
-	}
-	go jb.logProcessor()
-
-	jb.client = b.Publisher.Connect()
-
-	if err := jb.processConfig(b); err != nil {
+	jb.metrics.init(jb.config.MetricsEnabled, jb.config.MetricsHttpAddr)
+	go jb.runLogProcessor()
+	if err := jb.init(b); err != nil {
 		return err
 	}
 
-	for rawEvent := range journal.Follow(jb.journal, jb.done) {
+	jb.client = b.Publisher.Connect()
+
+	for rawEvent := range journal.Follow(jb.journal, jb.done, jb.metrics.journalReadErrors) {
 		//convert sdjournal.JournalEntry to common.MapStr
 		event := MapStrFromJournalEntry(
 			rawEvent,
