@@ -13,16 +13,23 @@ import (
 
 const (
 	metricPrefix string = "logging.journalbeat."
+
+	// Use exponentially decaying reservoir for sampling histograms with the same defaults as the Java library:
+	// 1028 elements, which offers a 99.9% confidence level with a 5% margin of error assuming a normal distribution,
+	// and an alpha factor of 0.015, which heavily biases the reservoir to the past 5 minutes of measurements.
+	// See https://github.com/dropwizard/metrics/blob/v3.1.0/metrics-core/src/main/java/com/codahale/metrics/ExponentiallyDecayingReservoir.java#L38
+	metricsReservoirSize = 1028
+	metricsAlphaFactor   = 0.015
 )
 
 type JournalBeatMetrics struct {
 	logMessagesPublished    metrics.Counter
 	logMessageDelay         metrics.Gauge
 	journalReadErrors       metrics.Counter
-	journalEntriesRead      metrics.Counter
 	journalEntriesContainer metrics.Counter
 	journalEntriesNative    metrics.Counter
 	journalEntriesUnknown   metrics.Counter
+	journalMessageSize      metrics.Histogram
 
 	httpServer *http.Server
 }
@@ -49,10 +56,10 @@ func (jbm *JournalBeatMetrics) init(metricsEnabled bool, httpAddr string) {
 	jbm.logMessageDelay = metrics.NewRegisteredGauge("MessageConsumptionDelay", registry)
 	jbm.logMessagesPublished = metrics.NewRegisteredCounter("MessagesPublished", registry)
 	jbm.journalReadErrors = metrics.NewRegisteredCounter("JournalReadErrors", registry)
-	jbm.journalEntriesRead = metrics.NewRegisteredCounter("JournalEntriesRead", registry)
 	jbm.journalEntriesContainer = metrics.NewRegisteredCounter("JournalEntriesContainer", registry)
 	jbm.journalEntriesNative = metrics.NewRegisteredCounter("JournalEntriesNative", registry)
 	jbm.journalEntriesUnknown = metrics.NewRegisteredCounter("JournalEntriesUnknown", registry)
+	jbm.journalMessageSize = metrics.NewRegisteredHistogram("JournalMessageSize", registry, metrics.NewExpDecaySample(metricsReservoirSize, metricsAlphaFactor))
 
 	if metricsEnabled {
 		prometheusRegistry := prometheus.DefaultRegisterer

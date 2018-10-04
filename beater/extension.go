@@ -52,6 +52,7 @@ type JournalBeatExtension struct {
 	publishers        []publisher.Client
 	logBuffersByType  map[string]*LogBuffer
 	incomingLogEvents chan common.MapStr
+	processorDone     chan struct{}
 }
 
 func hash(s string) int {
@@ -87,15 +88,18 @@ func shiftList(cfg *common.Config, target *common.Config, key string, shift int)
 }
 
 func (jb *Journalbeat) flushStaleEvents() {
+	now := time.Now()
+	var lastLogBuffer *LogBuffer
 	for logType, logBuffer := range jb.logBuffersByType {
-		if time.Now().Sub(logBuffer.time).Seconds() >= jb.config.FlushLogInterval.Seconds() {
+		if now.Sub(logBuffer.time).Seconds() >= jb.config.FlushLogInterval.Seconds() {
 			// this message has been sitting in our buffer for more than XX seconds, time to flush it.
 			jb.publishEvent(logBuffer)
 			delete(jb.logBuffersByType, logType)
-
-			// TODO there's a race condition on close, sometimes this channel is closed and we panic
-			jb.cursorChan <- logBuffer.logEvent[cursorField].(string)
+			lastLogBuffer = logBuffer
 		}
+	}
+	if lastLogBuffer != nil {
+		jb.cursorChan <- lastLogBuffer.logEvent[cursorField].(string)
 	}
 }
 
@@ -122,19 +126,21 @@ func (jb *Journalbeat) flushOrBufferEvent(event common.MapStr) {
 }
 
 func (jbe *JournalBeatExtension) getPublisher(logBuffer *LogBuffer) publisher.Client {
-	numPartitions := len(jbe.publishers)
-	var partition int
+	var partitioningString string
 	if tag, ok := logBuffer.logEvent[containerTagField]; ok {
 		// same container - same instance
 		// Assuming equal config - if container moves, it should still
 		// end up at same logstash instance
-		partition = hash(tag.(string)) % numPartitions
+		partitioningString = tag.(string)
 	} else if buftype, ok := logBuffer.logEvent[logBufferingTypeField]; ok {
 		// journalbeat does re-assembly based on logBufferingType
-		partition = hash(buftype.(string)) % numPartitions
+		partitioningString = buftype.(string)
 	} else if eventtype, ok := logBuffer.logEvent["type"]; ok {
-		partition = hash(eventtype.(string)) % numPartitions
+		partitioningString = eventtype.(string)
 	}
+
+	numPartitions := len(jbe.publishers)
+	partition := hash(partitioningString) % numPartitions
 	return jbe.publishers[partition]
 }
 
@@ -158,6 +164,7 @@ func (jb *Journalbeat) runLogProcessor() {
 		// TODO optimize this later but for now walk through all the different types. Use priority queue/multiple threads if needed.
 		select {
 		case <-jb.done:
+			close(jb.processorDone)
 			return
 		case <-tickChan.C:
 			// here we need to walk through all the map entries and flush out the ones
@@ -201,7 +208,11 @@ var nativeFields = commonFields.union(StringSet{
 })
 
 func (jbe *JournalBeatExtension) sendEvent(event common.MapStr, rawEvent *sdjournal.JournalEntry) {
-	jbe.metrics.journalEntriesRead.Inc(1)
+	var messageSize int64 = 0
+	if message, exists := event[messageField]; exists {
+		messageSize = int64(len(fmt.Sprintf("%v", message)))
+	}
+	jbe.metrics.journalMessageSize.Update(messageSize)
 
 	var newEvent common.MapStr
 	if containerId, exists := event[containerIdField]; exists {
