@@ -294,7 +294,7 @@ func (jbe *JournalBeatExtension) init(b *beat.Beat) error {
 	return nil
 }
 
-func (jbe *JournalBeatExtension) close() {
+func (jbe *JournalBeatExtension) closeExtension() {
 	for _, client := range jbe.publishers {
 		client.Close()
 	}

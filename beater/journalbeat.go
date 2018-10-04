@@ -162,6 +162,7 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 		close(jb.cursorChan)
 		jb.client.Close()
 		jb.journal.Close()
+		jb.closeExtension()
 	}()
 
 	if jb.config.WriteCursorState {
@@ -200,5 +201,4 @@ func (jb *Journalbeat) Run(b *beat.Beat) error {
 func (jb *Journalbeat) Stop() {
 	logp.Info("Stopping Journalbeat")
 	close(jb.done)
-	jb.close()
 }
