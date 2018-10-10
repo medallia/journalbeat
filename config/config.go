@@ -25,21 +25,21 @@ import (
 
 // Config provides the config settings for the journald reader
 type Config struct {
-	SeekPosition         string        	`config:"seek_position"`
-	ConvertToNumbers     bool          	`config:"convert_to_numbers"`
-	CleanFieldNames      bool          	`config:"clean_field_names"`
-	WriteCursorState     bool          	`config:"write_cursor_state"`
-	CursorStateFile      string        	`config:"cursor_state_file"`
-	CursorFlushPeriod    time.Duration 	`config:"cursor_flush_period"`
-	CursorSeekFallback   string        	`config:"cursor_seek_fallback"`
-	MoveMetadataLocation string        	`config:"move_metadata_to_field"`
-	DefaultType          string        	`config:"default_type"`
-	Units                []string      	`config:"units"`
-	FlushLogInterval     time.Duration 	`config:"flush_log_interval"`
-	MetricsInterval      time.Duration 	`config:"emit_metrics_interval"`
-	MetricsEnabled       bool          	`config:"enable_metrics"`
-	WavefrontCollector   string        	`config:"wavefront_collector"`
-	HostTags             map[string]string  `config:"wavefront_tags"`
+	SeekPosition         string        `config:"seek_position"`
+	ConvertToNumbers     bool          `config:"convert_to_numbers"`
+	CleanFieldNames      bool          `config:"clean_field_names"`
+	WriteCursorState     bool          `config:"write_cursor_state"`
+	CursorStateFile      string        `config:"cursor_state_file"`
+	CursorFlushPeriod    time.Duration `config:"cursor_flush_period"`
+	CursorSeekFallback   string        `config:"cursor_seek_fallback"`
+	MoveMetadataLocation string        `config:"move_metadata_to_field"`
+	DefaultType          string        `config:"default_type"`
+	Units                []string      `config:"units"`
+
+	// Medallia added
+	MetricsEnabled   bool          `config:"enable_metrics"`
+	FlushLogInterval time.Duration `config:"flush_log_interval"`
+	MetricsHttpAddr  string        `config:"metrics_http_addr"`
 }
 
 // Named constants for the journal cursor placement positions
@@ -70,16 +70,19 @@ var (
 		CursorFlushPeriod:  5 * time.Second,
 		CursorSeekFallback: SeekPositionTail,
 		DefaultType:        "journal",
-		FlushLogInterval:   30 * time.Second,
-		MetricsInterval:    30 * time.Second,
-		MetricsEnabled:     false,
-		WavefrontCollector: "",
-		HostTags:           map[string]string{},
+
+		MetricsEnabled:   false,
+		FlushLogInterval: 10 * time.Second,
+		MetricsHttpAddr:  ":8008",
 	}
 )
 
 // Validate turns Config into implementation of Validator and will be executed when Unpack is called
 func (config *Config) Validate() error {
+	if config.MetricsEnabled && config.MetricsHttpAddr == "" {
+		return fmt.Errorf("metrics enabled but http address is empty")
+	}
+
 	// validate MoveMetadataLocation against the regexp. We don't want extra dots to appear
 	validID := regexp.MustCompile(`\.{2,}|\.$`)
 	if config.MoveMetadataLocation != "" && validID.MatchString(config.MoveMetadataLocation) {

@@ -18,11 +18,11 @@ import (
 	"log"
 
 	"github.com/elastic/beats/libbeat/beat"
-	"github.com/medallia/journalbeat/beater"
+	"github.com/mheese/journalbeat/beater"
 )
 
 func main() {
-	err := beat.Run("journalbeat", "5.0.2", beater.New)
+	err := beat.Run("journalbeat", "5.1.2", beater.New)
 	if err != nil {
 		log.Fatal(err)
 	}
