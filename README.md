@@ -49,3 +49,13 @@ A few current caveats with journalbeat
 
 The underlying system library [go-systemd](https://github.com/coreos/go-systemd) makes heavy usage of cgo and the final binary will be linked against all client libraries that are needed in order to interact with sd-journal. That means that
 the resulting binary is not really Linux distribution independent (which is kind of expected in a way).
+
+## Build
+
+First, built the building docker image:  `docker build -t golangjd`
+Second, build the binary mounting the sources: `docker run --rm -v <journalbeat_project_path>:/usr/local/go/src/github.com/mheese/journalbeat -w /usr/local/go/src/github.com/mheese/journalbeat golangjd ./build.sh`
+
+## Update packages
+
+1. Update the package in GOPATH to the desired version
+1. `govendor update <package>` 
