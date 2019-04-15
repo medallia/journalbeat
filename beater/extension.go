@@ -220,10 +220,10 @@ func (jbe *JournalBeatExtension) sendEvent(event common.MapStr, rawEvent *sdjour
 		newEvent["type"] = "container"
 		newEvent[logBufferingTypeField] = containerId
 		jbe.metrics.journalEntriesContainer.Inc(1)
-	} else if processId, exists := event[processIdField]; exists {
+	} else if isNativeProcess(event) {
 		newEvent = cloneFields(event, nativeFields)
+		newEvent[logBufferingTypeField] = event[processIdField]
 		newEvent["type"] = event[tagField]
-		newEvent[logBufferingTypeField] = processId
 		jbe.metrics.journalEntriesNative.Inc(1)
 	} else {
 		logp.Info("Unknown type message %s", event)
@@ -243,6 +243,12 @@ func (jbe *JournalBeatExtension) sendEvent(event common.MapStr, rawEvent *sdjour
 	}
 
 	jbe.incomingLogEvents <- newEvent
+}
+
+func isNativeProcess(event common.MapStr) bool {
+	_, hasProcessId := event[processIdField]
+	_, hasSyslogId := event[tagField]
+	return hasProcessId && hasSyslogId
 }
 
 func cloneFields(event common.MapStr, fields StringSet) common.MapStr {

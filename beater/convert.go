@@ -46,12 +46,12 @@ func MapStrFromJournalEntry(ev *sdjournal.JournalEntry, cleanKeys bool, convertT
 	// range over the JournalEntry Fields and convert to the common.MapStr
 	for k, v := range ev.Fields {
 		nk := makeNewKey(k, cleanKeys)
-		nv := makeNewValue(v, convertToNumbers)
-		// message Field should be on the top level of the event
+		// message Field should be on the top level of the event and is kept as string
 		if nk == "message" {
-			m[nk] = nv
+			m[nk] = v
 			continue
 		}
+		nv := makeNewValue(v, convertToNumbers)
 		target[nk] = nv
 	}
 
