@@ -52,7 +52,7 @@ the resulting binary is not really Linux distribution independent (which is kind
 
 ## Build
 
-First, built the building docker image. Second, create the build folder and build the binary mounting the sources: 
+First, build the docker image of `golangjd`. Second, create the build folder and build the binary mounting the sources: 
 
 ```
 docker build -t golangjd .
