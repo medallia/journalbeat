@@ -52,8 +52,14 @@ the resulting binary is not really Linux distribution independent (which is kind
 
 ## Build
 
-First, built the building docker image:  `docker build -t golangjd`
-Second, build the binary mounting the sources: `docker run --rm -v <journalbeat_project_path>:/usr/local/go/src/github.com/mheese/journalbeat -w /usr/local/go/src/github.com/mheese/journalbeat golangjd ./build.sh`
+First, built the building docker image:  
+
+`docker build -t golangjd .`
+
+Second, create the build folder and build the binary mounting the sources: 
+
+`mkdir build`
+`docker run --rm -v $(pwd):/usr/local/go/src/github.com/mheese/journalbeat -w /usr/local/go/src/github.com/mheese/journalbeat golangjd ./build.sh`
 
 ## Update packages
 
